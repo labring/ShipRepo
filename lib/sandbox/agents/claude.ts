@@ -8,6 +8,7 @@ import { connectors, taskMessages } from '@/lib/db/schema'
 import { db } from '@/lib/db/client'
 import { eq } from 'drizzle-orm'
 import { generateId } from '@/lib/utils/id'
+import { resolveGatewayFromApiKeys } from '@/lib/api-keys/user-keys'
 
 type Connector = typeof connectors.$inferSelect
 
@@ -84,11 +85,12 @@ export async function installClaudeCLI(
     await logger.info('Claude CLI installed successfully')
 
     // Authenticate Claude CLI with API key (using AI Gateway)
-    const apiKey = process.env.AI_GATEWAY_API_KEY
-    const baseUrl = 'https://ai-gateway.vercel.sh'
+    const gatewayConfig = resolveGatewayFromApiKeys()
+    const apiKey = gatewayConfig?.apiKey
+    const baseUrl = gatewayConfig?.baseUrl
 
-    if (apiKey) {
-      await logger.info('Authenticating Claude CLI with AI Gateway...')
+    if (apiKey && baseUrl) {
+      await logger.info('Authenticating Claude CLI with gateway...')
 
       // Create Claude config directory (use $HOME instead of ~)
       await runCommandInSandbox(sandbox, 'mkdir', ['-p', '$HOME/.config/claude'])
@@ -238,10 +240,12 @@ export async function executeClaudeInSandbox(
     }
 
     // Check if AI_GATEWAY_API_KEY is available
-    if (!process.env.AI_GATEWAY_API_KEY) {
+    const gatewayConfig = resolveGatewayFromApiKeys()
+
+    if (!gatewayConfig) {
       return {
         success: false,
-        error: 'AI_GATEWAY_API_KEY environment variable is required but not found',
+        error: 'AI Gateway or AIProxy API key is required but not found',
         cliName: 'claude',
         changesDetected: false,
       }
@@ -254,9 +258,7 @@ export async function executeClaudeInSandbox(
     }
 
     // Check MCP configuration status
-    const aiGatewayKey = process.env.AI_GATEWAY_API_KEY!
-    const aiGatewayBaseUrl = 'https://ai-gateway.vercel.sh'
-    const envPrefix = `ANTHROPIC_API_KEY="${aiGatewayKey}" ANTHROPIC_BASE_URL="${aiGatewayBaseUrl}"`
+    const envPrefix = `ANTHROPIC_API_KEY="${gatewayConfig.apiKey}" ANTHROPIC_BASE_URL="${gatewayConfig.baseUrl}"`
     const mcpList = await runCommandInSandbox(sandbox, 'sh', ['-c', `${envPrefix} claude mcp list`])
     await logger.info('MCP servers list retrieved')
     if (mcpList.error) {
@@ -299,7 +301,7 @@ export async function executeClaudeInSandbox(
     }
 
     // Log the command we're about to execute (with redacted API key)
-    const redactedCommand = fullCommand.replace(aiGatewayKey, '[REDACTED]')
+    const redactedCommand = fullCommand.replace(gatewayConfig.apiKey, '[REDACTED]')
     await logger.command(redactedCommand)
 
     // Set up streaming output capture if we have an agent message

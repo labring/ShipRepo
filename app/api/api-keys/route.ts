@@ -4,9 +4,9 @@ import { db } from '@/lib/db/client'
 import { keys } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
-import { encrypt, decrypt } from '@/lib/crypto'
+import { encrypt } from '@/lib/crypto'
 
-type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway'
+type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway' | 'aiproxy'
 
 export async function GET(req: NextRequest) {
   try {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Provider and API key are required' }, { status: 400 })
     }
 
-    if (!['openai', 'gemini', 'cursor', 'anthropic', 'aigateway'].includes(provider)) {
+    if (!['openai', 'gemini', 'cursor', 'anthropic', 'aigateway', 'aiproxy'].includes(provider)) {
       return NextResponse.json({ error: 'Invalid provider' }, { status: 400 })
     }
 

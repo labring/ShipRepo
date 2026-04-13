@@ -7,21 +7,28 @@ export function validateEnvironmentVariables(
     CURSOR_API_KEY?: string
     ANTHROPIC_API_KEY?: string
     AI_GATEWAY_API_KEY?: string
+    AIPROXY_API_KEY?: string
   },
 ) {
   const errors: string[] = []
+  const hasGatewayKey = !!(
+    apiKeys?.AI_GATEWAY_API_KEY ||
+    process.env.AI_GATEWAY_API_KEY ||
+    apiKeys?.AIPROXY_API_KEY ||
+    process.env.AIPROXY_API_KEY
+  )
 
   // Check for required environment variables based on selected agent
-  if (selectedAgent === 'claude' && !apiKeys?.AI_GATEWAY_API_KEY && !process.env.AI_GATEWAY_API_KEY) {
-    errors.push('AI_GATEWAY_API_KEY is required for Claude CLI. Please add your API key in your profile.')
+  if (selectedAgent === 'claude' && !hasGatewayKey) {
+    errors.push('AI Gateway or AIProxy API key is required for Claude CLI. Please add your API key in your profile.')
   }
 
   if (selectedAgent === 'cursor' && !apiKeys?.CURSOR_API_KEY && !process.env.CURSOR_API_KEY) {
     errors.push('CURSOR_API_KEY is required for Cursor CLI. Please add your API key in your profile.')
   }
 
-  if (selectedAgent === 'codex' && !apiKeys?.AI_GATEWAY_API_KEY && !process.env.AI_GATEWAY_API_KEY) {
-    errors.push('AI_GATEWAY_API_KEY is required for Codex CLI. Please add your API key in your profile.')
+  if (selectedAgent === 'codex' && !hasGatewayKey) {
+    errors.push('AI Gateway or AIProxy API key is required for Codex CLI. Please add your API key in your profile.')
   }
 
   if (selectedAgent === 'gemini' && !apiKeys?.GEMINI_API_KEY && !process.env.GEMINI_API_KEY) {

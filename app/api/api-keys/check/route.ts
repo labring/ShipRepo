@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getUserApiKey } from '@/lib/api-keys/user-keys'
 
-type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway'
+type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway' | 'aiproxy'
 
 // Map agents to their required providers
 const AGENT_PROVIDER_MAP: Record<string, Provider | null> = {
@@ -60,6 +60,18 @@ export async function GET(req: NextRequest) {
         hasKey,
         provider: 'github',
         agentName: 'Copilot',
+      })
+    }
+
+    if (agent === 'claude' || agent === 'codex') {
+      const [aiGatewayKey, aiProxyKey] = await Promise.all([getUserApiKey('aigateway'), getUserApiKey('aiproxy')])
+      const resolvedProvider = aiGatewayKey ? 'aigateway' : aiProxyKey ? 'aiproxy' : 'aigateway'
+
+      return NextResponse.json({
+        success: true,
+        hasKey: !!(aiGatewayKey || aiProxyKey),
+        provider: resolvedProvider,
+        agentName: agent.charAt(0).toUpperCase() + agent.slice(1),
       })
     }
 

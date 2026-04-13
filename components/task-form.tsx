@@ -133,14 +133,14 @@ const DEFAULT_MODELS = {
 // API key requirements for each agent
 const AGENT_API_KEY_REQUIREMENTS: Record<string, Provider[]> = {
   claude: ['anthropic'],
-  codex: ['aigateway'], // Uses AI Gateway for OpenAI proxy
+  codex: ['aigateway', 'aiproxy'], // Uses a gateway for OpenAI proxy
   copilot: [], // Uses user's GitHub account token automatically
   cursor: ['cursor'],
   gemini: ['gemini'],
   opencode: [], // Will be determined dynamically based on selected model
 }
 
-type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway'
+type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway' | 'aiproxy'
 
 // Helper to determine which API key is needed for opencode based on model
 const getOpenCodeRequiredKeys = (model: string): Provider[] => {
@@ -368,6 +368,7 @@ export function TaskForm({
             cursor: 'Cursor',
             gemini: 'Gemini',
             aigateway: 'AI Gateway',
+            aiproxy: 'AIProxy',
           }
           const providerName = providerNames[data.provider] || data.provider
 

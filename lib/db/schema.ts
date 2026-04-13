@@ -323,7 +323,7 @@ export const keys = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }), // Foreign key to users table
     provider: text('provider', {
-      enum: ['anthropic', 'openai', 'cursor', 'gemini', 'aigateway'],
+      enum: ['anthropic', 'openai', 'cursor', 'gemini', 'aigateway', 'aiproxy'],
     }).notNull(),
     value: text('value').notNull(), // Encrypted API key value
     createdAt: timestamp('created_at').defaultNow().notNull(),
@@ -338,7 +338,7 @@ export const keys = pgTable(
 export const insertKeySchema = z.object({
   id: z.string().optional(),
   userId: z.string(),
-  provider: z.enum(['anthropic', 'openai', 'cursor', 'gemini', 'aigateway']),
+  provider: z.enum(['anthropic', 'openai', 'cursor', 'gemini', 'aigateway', 'aiproxy']),
   value: z.string().min(1, 'API key value is required'),
   createdAt: z.date().optional(),
   updatedAt: z.date().optional(),
@@ -347,7 +347,7 @@ export const insertKeySchema = z.object({
 export const selectKeySchema = z.object({
   id: z.string(),
   userId: z.string(),
-  provider: z.enum(['anthropic', 'openai', 'cursor', 'gemini', 'aigateway']),
+  provider: z.enum(['anthropic', 'openai', 'cursor', 'gemini', 'aigateway', 'aiproxy']),
   value: z.string(),
   createdAt: z.date(),
   updatedAt: z.date(),

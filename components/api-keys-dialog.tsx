@@ -13,10 +13,11 @@ interface ApiKeysDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway'
+type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway' | 'aiproxy'
 
 const PROVIDERS = [
   { id: 'aigateway' as Provider, name: 'AI Gateway', placeholder: 'gw_...' },
+  { id: 'aiproxy' as Provider, name: 'AIProxy', placeholder: 'sk-...' },
   { id: 'anthropic' as Provider, name: 'Anthropic', placeholder: 'sk-ant-...' },
   { id: 'openai' as Provider, name: 'OpenAI', placeholder: 'sk-...' },
   { id: 'gemini' as Provider, name: 'Gemini', placeholder: 'AIza...' },
@@ -30,6 +31,7 @@ export function ApiKeysDialog({ open, onOpenChange }: ApiKeysDialogProps) {
     cursor: '',
     anthropic: '',
     aigateway: '',
+    aiproxy: '',
   })
   const [savedKeys, setSavedKeys] = useState<Set<Provider>>(new Set())
   const [clearedKeys, setClearedKeys] = useState<Set<Provider>>(new Set())
@@ -39,6 +41,7 @@ export function ApiKeysDialog({ open, onOpenChange }: ApiKeysDialogProps) {
     cursor: false,
     anthropic: false,
     aigateway: false,
+    aiproxy: false,
   })
   const [loading, setLoading] = useState(false)
 

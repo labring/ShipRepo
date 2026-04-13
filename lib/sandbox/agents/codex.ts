@@ -4,6 +4,7 @@ import { AgentExecutionResult } from '../types'
 import { redactSensitiveInfo } from '@/lib/utils/logging'
 import { TaskLogger } from '@/lib/utils/task-logger'
 import { connectors } from '@/lib/db/schema'
+import { GATEWAY_BASE_URLS, resolveGatewayFromApiKeys } from '@/lib/api-keys/user-keys'
 
 type Connector = typeof connectors.$inferSelect
 
@@ -76,21 +77,24 @@ export async function executeCodexInSandbox(
     }
 
     // Set up authentication - we'll use API key method since we're in a sandbox
-    if (!process.env.AI_GATEWAY_API_KEY) {
+    const gatewayConfig = resolveGatewayFromApiKeys()
+
+    if (!gatewayConfig) {
       return {
         success: false,
-        error: 'AI Gateway API key not found. Please set AI_GATEWAY_API_KEY environment variable.',
+        error: 'AI Gateway or AIProxy API key not found. Please set a gateway API key.',
         cliName: 'codex',
         changesDetected: false,
       }
     }
 
     // Validate API key format - can be either OpenAI (sk-) or Vercel (vck_)
-    const apiKey = process.env.AI_GATEWAY_API_KEY
+    const apiKey = gatewayConfig.apiKey
     const isOpenAIKey = apiKey?.startsWith('sk-')
     const isVercelKey = apiKey?.startsWith('vck_')
+    const isAiProxyKey = gatewayConfig.provider === 'aiproxy'
 
-    if (!apiKey || (!isOpenAIKey && !isVercelKey)) {
+    if (!apiKey || (!isOpenAIKey && !isVercelKey && !isAiProxyKey)) {
       const errorMsg = `Invalid API key format. Expected to start with "sk-" (OpenAI) or "vck_" (Vercel), but got: "${apiKey?.substring(0, 15) || 'undefined'}"`
 
       if (logger) {
@@ -105,7 +109,7 @@ export async function executeCodexInSandbox(
     }
 
     if (logger) {
-      const keyType = isVercelKey ? 'Vercel AI Gateway' : 'OpenAI'
+      const keyType = isAiProxyKey ? 'AIProxy' : isVercelKey ? 'Vercel AI Gateway' : 'OpenAI'
       await logger.info('Using API key for authentication')
     }
 
@@ -149,16 +153,16 @@ export async function executeCodexInSandbox(
     // Use selectedModel if provided, otherwise fall back to default
     const modelToUse = selectedModel || 'openai/gpt-4o'
     let configToml
-    if (isVercelKey) {
+    if (isAiProxyKey || isVercelKey) {
       // Use Vercel AI Gateway configuration for vck_ keys
       // Based on the curl example, it uses /chat/completions endpoint, not responses
       configToml = `model = "${modelToUse}"
-model_provider = "vercel-ai-gateway"
+model_provider = "${gatewayConfig.provider}"
 
-[model_providers.vercel-ai-gateway]
-name = "Vercel AI Gateway"
-base_url = "https://ai-gateway.vercel.sh/v1"
-env_key = "AI_GATEWAY_API_KEY"
+[model_providers.${gatewayConfig.provider}]
+name = "${isAiProxyKey ? 'AIProxy' : 'Vercel AI Gateway'}"
+base_url = "${GATEWAY_BASE_URLS[gatewayConfig.provider]}/v1"
+env_key = "${gatewayConfig.envKey}"
 wire_api = "chat"
 
 # Debug settings
@@ -296,7 +300,7 @@ url = "${server.baseUrl}"
     await logger.command(logCommand)
     if (logger) {
       await logger.command(logCommand)
-      const providerName = isVercelKey ? 'Vercel AI Gateway' : 'OpenAI API'
+      const providerName = isAiProxyKey ? 'AIProxy' : isVercelKey ? 'Vercel AI Gateway' : 'OpenAI API'
       await logger.info(
         `Executing Codex with model ${modelToUse} via ${providerName} and bypassed sandbox restrictions`,
       )
@@ -304,7 +308,7 @@ url = "${server.baseUrl}"
 
     // Use the same pattern as other working agents (Claude, etc.)
     // Execute with environment variables using sh -c like Claude does
-    const envPrefix = `AI_GATEWAY_API_KEY="${process.env.AI_GATEWAY_API_KEY}" HOME="/home/vercel-sandbox" CI="true"`
+    const envPrefix = `${gatewayConfig.envKey}="${gatewayConfig.apiKey}" HOME="/home/vercel-sandbox" CI="true"`
     const fullCommand = `${envPrefix} ${codexCommand} "${instruction}"`
 
     // Use the standard runInProject helper like other agents

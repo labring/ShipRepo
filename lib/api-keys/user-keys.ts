@@ -6,7 +6,42 @@ import { eq, and } from 'drizzle-orm'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { decrypt } from '@/lib/crypto'
 
-type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway'
+export type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway' | 'aiproxy'
+export type GatewayProvider = 'aigateway' | 'aiproxy'
+
+export const GATEWAY_BASE_URLS: Record<GatewayProvider, string> = {
+  aigateway: 'https://ai-gateway.vercel.sh',
+  aiproxy: 'https://aiproxy.usw-1.sealos.io',
+}
+
+export const GATEWAY_ENV_KEYS: Record<GatewayProvider, 'AI_GATEWAY_API_KEY' | 'AIPROXY_API_KEY'> = {
+  aigateway: 'AI_GATEWAY_API_KEY',
+  aiproxy: 'AIPROXY_API_KEY',
+}
+
+export function resolveGatewayFromApiKeys(apiKeys?: { AI_GATEWAY_API_KEY?: string; AIPROXY_API_KEY?: string }) {
+  const aiGatewayKey = apiKeys?.AI_GATEWAY_API_KEY || process.env.AI_GATEWAY_API_KEY
+  if (aiGatewayKey) {
+    return {
+      provider: 'aigateway' as const,
+      apiKey: aiGatewayKey,
+      baseUrl: GATEWAY_BASE_URLS.aigateway,
+      envKey: GATEWAY_ENV_KEYS.aigateway,
+    }
+  }
+
+  const aiProxyKey = apiKeys?.AIPROXY_API_KEY || process.env.AIPROXY_API_KEY
+  if (aiProxyKey) {
+    return {
+      provider: 'aiproxy' as const,
+      apiKey: aiProxyKey,
+      baseUrl: GATEWAY_BASE_URLS.aiproxy,
+      envKey: GATEWAY_ENV_KEYS.aiproxy,
+    }
+  }
+
+  return null
+}
 
 /**
  * Get API keys for the currently authenticated user
@@ -18,6 +53,7 @@ export async function getUserApiKeys(): Promise<{
   CURSOR_API_KEY: string | undefined
   ANTHROPIC_API_KEY: string | undefined
   AI_GATEWAY_API_KEY: string | undefined
+  AIPROXY_API_KEY: string | undefined
 }> {
   const session = await getServerSession()
 
@@ -28,6 +64,7 @@ export async function getUserApiKeys(): Promise<{
     CURSOR_API_KEY: process.env.CURSOR_API_KEY,
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
+    AIPROXY_API_KEY: process.env.AIPROXY_API_KEY,
   }
 
   if (!session?.user?.id) {
@@ -56,6 +93,9 @@ export async function getUserApiKeys(): Promise<{
         case 'aigateway':
           apiKeys.AI_GATEWAY_API_KEY = decryptedValue
           break
+        case 'aiproxy':
+          apiKeys.AIPROXY_API_KEY = decryptedValue
+          break
       }
     })
   } catch (error) {
@@ -80,6 +120,7 @@ export async function getUserApiKey(provider: Provider): Promise<string | undefi
     cursor: process.env.CURSOR_API_KEY,
     anthropic: process.env.ANTHROPIC_API_KEY,
     aigateway: process.env.AI_GATEWAY_API_KEY,
+    aiproxy: process.env.AIPROXY_API_KEY,
   }
 
   if (!session?.user?.id) {
