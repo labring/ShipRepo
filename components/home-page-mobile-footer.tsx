@@ -29,7 +29,7 @@ export function HomePageMobileFooter({ initialStars = 1200 }: HomePageMobileFoot
         </Button>
 
         {/* Deploy to Vercel Button */}
-        <Button
+        {/* <Button
           asChild
           variant="default"
           size="default"
@@ -46,7 +46,7 @@ export function HomePageMobileFooter({ initialStars = 1200 }: HomePageMobileFoot
             </svg>
             <span className="text-sm font-medium">Deploy Your Own</span>
           </a>
-        </Button>
+        </Button> */}
       </div>
     </div>
   )

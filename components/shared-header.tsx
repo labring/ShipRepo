@@ -20,7 +20,7 @@ export function SharedHeader({
   extraActions,
   initialStars = 1200,
   hideStars = false,
-  hideDeployButton = false,
+  hideDeployButton = true,
 }: SharedHeaderProps) {
   const { toggleSidebar } = useTasks()
 
