@@ -19,6 +19,13 @@ export const GATEWAY_ENV_KEYS: Record<GatewayProvider, 'AI_GATEWAY_API_KEY' | 'A
   aiproxy: 'AIPROXY_API_KEY',
 }
 
+export interface GatewayConfig {
+  provider: GatewayProvider
+  apiKey: string
+  baseUrl: string
+  envKey: 'AI_GATEWAY_API_KEY' | 'AIPROXY_API_KEY'
+}
+
 export function resolveGatewayFromApiKeys(apiKeys?: { AI_GATEWAY_API_KEY?: string; AIPROXY_API_KEY?: string }) {
   const aiGatewayKey = apiKeys?.AI_GATEWAY_API_KEY || process.env.AI_GATEWAY_API_KEY
   if (aiGatewayKey) {
@@ -37,6 +44,33 @@ export function resolveGatewayFromApiKeys(apiKeys?: { AI_GATEWAY_API_KEY?: strin
       apiKey: aiProxyKey,
       baseUrl: GATEWAY_BASE_URLS.aiproxy,
       envKey: GATEWAY_ENV_KEYS.aiproxy,
+    }
+  }
+
+  return null
+}
+
+export function resolveCodexGatewayFromApiKeys(apiKeys?: {
+  AI_GATEWAY_API_KEY?: string
+  AIPROXY_API_KEY?: string
+}): GatewayConfig | null {
+  const aiProxyKey = apiKeys?.AIPROXY_API_KEY || process.env.AIPROXY_API_KEY
+  if (aiProxyKey) {
+    return {
+      provider: 'aiproxy',
+      apiKey: aiProxyKey,
+      baseUrl: GATEWAY_BASE_URLS.aiproxy,
+      envKey: GATEWAY_ENV_KEYS.aiproxy,
+    }
+  }
+
+  const aiGatewayKey = apiKeys?.AI_GATEWAY_API_KEY || process.env.AI_GATEWAY_API_KEY
+  if (aiGatewayKey) {
+    return {
+      provider: 'aigateway',
+      apiKey: aiGatewayKey,
+      baseUrl: GATEWAY_BASE_URLS.aigateway,
+      envKey: GATEWAY_ENV_KEYS.aigateway,
     }
   }
 
