@@ -7,6 +7,7 @@ import { getDevboxArchiveAfterPauseTime, getDevboxDefaultImage, getDevboxNamespa
 import { createTaskDevboxName } from '@/lib/devbox/naming'
 import type { DevboxInfo, DevboxSshInfo } from '@/lib/devbox/types'
 import { getUserApiKeys, resolveCodexGatewayFromApiKeys } from '@/lib/api-keys/user-keys'
+import { resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
 import { getUserGitHubToken } from '@/lib/github/user-token'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { createTaskLogger } from '@/lib/utils/task-logger'
@@ -37,11 +38,17 @@ function sanitizeSshInfo(ssh?: DevboxSshInfo) {
   }
 }
 
-function buildRuntimeResponse(runtimeName: string, runtimeNamespace: string | null, info?: DevboxInfo) {
+function buildRuntimeResponse(
+  runtimeName: string,
+  runtimeNamespace: string | null,
+  gatewayUrl?: string | null,
+  info?: DevboxInfo,
+) {
   return {
     provider: 'devbox',
     name: runtimeName,
     namespace: runtimeNamespace,
+    gatewayUrl: gatewayUrl || null,
     state: info?.state || null,
     creationTimestamp: info?.creationTimestamp || null,
     deletionTimestamp: info?.deletionTimestamp || null,
@@ -84,6 +91,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
     try {
       const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
+      const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl)
       const response = await getDevbox(task.runtimeName)
 
       await db
@@ -91,6 +99,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
         .set({
           runtimeState: response.data.state.phase,
           runtimeNamespace,
+          gatewayUrl,
           updatedAt: new Date(),
         })
         .where(eq(tasks.id, taskId))
@@ -98,7 +107,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       return NextResponse.json({
         success: true,
         data: {
-          runtime: buildRuntimeResponse(task.runtimeName, runtimeNamespace, response.data),
+          runtime: buildRuntimeResponse(task.runtimeName, runtimeNamespace, gatewayUrl, response.data),
         },
       })
     } catch (error) {
@@ -110,6 +119,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
             runtimeName: null,
             runtimeNamespace: null,
             runtimeState: null,
+            gatewayUrl: null,
+            gatewaySessionId: null,
             updatedAt: new Date(),
           })
           .where(eq(tasks.id, taskId))
@@ -150,11 +161,20 @@ export async function POST(_request: Request, { params }: RouteParams) {
       try {
         const existingRuntime = await getDevbox(task.runtimeName)
         const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
+        const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl)
+
+        await db
+          .update(tasks)
+          .set({
+            gatewayUrl,
+            updatedAt: new Date(),
+          })
+          .where(eq(tasks.id, taskId))
 
         return NextResponse.json({
           success: true,
           data: {
-            runtime: buildRuntimeResponse(task.runtimeName, runtimeNamespace, existingRuntime.data),
+            runtime: buildRuntimeResponse(task.runtimeName, runtimeNamespace, gatewayUrl, existingRuntime.data),
           },
         })
       } catch (error) {
@@ -169,6 +189,8 @@ export async function POST(_request: Request, { params }: RouteParams) {
             runtimeName: null,
             runtimeNamespace: null,
             runtimeState: null,
+            gatewayUrl: null,
+            gatewaySessionId: null,
             updatedAt: new Date(),
           })
           .where(eq(tasks.id, taskId))
@@ -181,6 +203,8 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const existingDevbox = existingDevboxes.data.items[0]
 
     if (existingDevbox) {
+      const gatewayUrl = resolveCodexGatewayUrl(existingDevbox.name, task.gatewayUrl)
+
       await db
         .update(tasks)
         .set({
@@ -188,6 +212,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
           runtimeName: existingDevbox.name,
           runtimeNamespace: getDevboxNamespace(),
           runtimeState: existingDevbox.state.phase,
+          gatewayUrl,
           updatedAt: new Date(),
         })
         .where(eq(tasks.id, taskId))
@@ -201,6 +226,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
             provider: 'devbox',
             name: existingDevbox.name,
             namespace: getDevboxNamespace(),
+            gatewayUrl,
             state: existingDevbox.state,
             creationTimestamp: existingDevbox.creationTimestamp,
             deletionTimestamp: existingDevbox.deletionTimestamp,
@@ -214,6 +240,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     const apiKeys = await getUserApiKeys()
     const gatewayConfig = resolveCodexGatewayFromApiKeys(apiKeys)
     const runtimeName = createTaskDevboxName(task.id)
+    const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl)
 
     const runtimeEnv: Record<string, string> = {
       TASK_ID: task.id,
@@ -260,6 +287,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
         runtimeName,
         runtimeNamespace: createResponse.data.namespace,
         runtimeState: infoResponse.data.state.phase,
+        gatewayUrl,
         updatedAt: new Date(),
       })
       .where(eq(tasks.id, taskId))
@@ -269,7 +297,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
     return NextResponse.json({
       success: true,
       data: {
-        runtime: buildRuntimeResponse(runtimeName, createResponse.data.namespace, infoResponse.data),
+        runtime: buildRuntimeResponse(runtimeName, createResponse.data.namespace, gatewayUrl, infoResponse.data),
       },
     })
   } catch (error) {
