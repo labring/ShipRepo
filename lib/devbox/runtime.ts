@@ -201,6 +201,10 @@ export async function ensureTaskDevboxRuntime(
     name: runtimeName,
     image: getDevboxDefaultImage(),
     upstreamID: task.id,
+    kubeAccess: {
+      enabled: true,
+      roleTemplate: 'edit',
+    },
     env: runtimeEnv,
     pauseAt: getPauseAt(task.maxDuration),
     archiveAfterPauseTime: getDevboxArchiveAfterPauseTime(),

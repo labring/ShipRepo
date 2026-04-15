@@ -1,17 +1,16 @@
-const DEVBOX_NAME_MAX_LENGTH = 63
+import { createHash } from 'crypto'
+
+const DEVBOX_NAME_LENGTH = 12
+const DEVBOX_NAME_ALPHABET = 'abcdefghijklmnopqrstuvwxyz'
 
 export function createTaskDevboxName(taskId: string): string {
-  const normalizedTaskId = taskId
-    .toLowerCase()
-    .replace(/[^a-z0-9-]/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-')
+  const digest = createHash('sha256').update(taskId).digest()
+  let name = ''
 
-  const baseName = `task-${normalizedTaskId || 'runtime'}`
-
-  if (baseName.length <= DEVBOX_NAME_MAX_LENGTH) {
-    return baseName
+  for (let index = 0; index < DEVBOX_NAME_LENGTH; index += 1) {
+    const value = digest[index] ?? digest[index % digest.length]!
+    name += DEVBOX_NAME_ALPHABET[value % DEVBOX_NAME_ALPHABET.length]
   }
 
-  return baseName.slice(0, DEVBOX_NAME_MAX_LENGTH).replace(/-+$/g, '')
+  return name
 }

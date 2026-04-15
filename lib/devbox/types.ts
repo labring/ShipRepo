@@ -59,10 +59,16 @@ export interface CreateDevboxLabel {
   value: string
 }
 
+export interface CreateDevboxKubeAccess {
+  enabled?: boolean
+  roleTemplate?: 'view' | 'edit' | 'admin'
+}
+
 export interface CreateDevboxInput {
   name: string
   image?: string
   upstreamID?: string
+  kubeAccess?: CreateDevboxKubeAccess
   env?: Record<string, string>
   pauseAt?: string
   archiveAfterPauseTime?: string
