@@ -380,10 +380,6 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
       gatewayEventSourceRef.current?.close()
       gatewayEventSourceRef.current = null
 
-      if (task.status !== 'processing' && task.status !== 'pending') {
-        setGatewayState(null)
-      }
-
       return
     }
 

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import {
   CodexGatewayApiError,
   createCodexGatewaySession,
@@ -48,6 +48,31 @@ function getAssistantContentAfterCursor(
     .filter(Boolean)
 
   return assistantMessages.join('\n\n').trim()
+}
+
+async function persistAssistantMessage(taskId: string, content: string): Promise<void> {
+  const trimmedContent = content.trim()
+  if (!trimmedContent) {
+    return
+  }
+
+  const [latestPersistedAgentMessage] = await db
+    .select({ content: taskMessages.content })
+    .from(taskMessages)
+    .where(and(eq(taskMessages.taskId, taskId), eq(taskMessages.role, 'agent')))
+    .orderBy(desc(taskMessages.createdAt))
+    .limit(1)
+
+  if (latestPersistedAgentMessage?.content.trim() === trimmedContent) {
+    return
+  }
+
+  await db.insert(taskMessages).values({
+    id: generateId(12),
+    taskId,
+    role: 'agent',
+    content: trimmedContent,
+  })
 }
 
 function isSuccessfulTurnStatus(status: string | null | undefined): boolean {
@@ -174,6 +199,11 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
       finalState = await getCodexGatewaySessionState(gatewayUrl, sessionId, gatewayAuthToken)
     } catch (error) {
       if (error instanceof CodexGatewayApiError && error.status === 404) {
+        const assistantContent = finalState
+          ? getAssistantContentAfterCursor(transcriptCursor, finalState.state.transcript)
+          : ''
+        await persistAssistantMessage(taskId, assistantContent)
+
         await db
           .update(tasks)
           .set({
@@ -199,6 +229,11 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
   }
 
   if (!finalState || finalState.state.activeTurn || !finalState.state.lastTurnStatus) {
+    const assistantContent = finalState
+      ? getAssistantContentAfterCursor(transcriptCursor, finalState.state.transcript)
+      : ''
+    await persistAssistantMessage(taskId, assistantContent)
+
     await db
       .update(tasks)
       .set({
@@ -213,15 +248,7 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
   }
 
   const assistantContent = getAssistantContentAfterCursor(transcriptCursor, finalState.state.transcript)
-
-  if (assistantContent) {
-    await db.insert(taskMessages).values({
-      id: generateId(12),
-      taskId,
-      role: 'agent',
-      content: assistantContent,
-    })
-  }
+  await persistAssistantMessage(taskId, assistantContent)
 
   if (isSuccessfulTurnStatus(finalState.state.lastTurnStatus)) {
     await db
