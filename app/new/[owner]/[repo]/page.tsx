@@ -1,5 +1,5 @@
 import { cookies } from 'next/headers'
-import { HomePageContent } from '@/components/home-page-content'
+import { SealosHomePageContent } from '@/components/sealos-home-page-content'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { getGitHubStars } from '@/lib/github-stars'
 import { getMaxSandboxDuration } from '@/lib/db/settings'
@@ -28,7 +28,7 @@ export default async function NewRepoPage({ params }: NewRepoPageProps) {
   const stars = await getGitHubStars()
 
   return (
-    <HomePageContent
+    <SealosHomePageContent
       initialSelectedOwner={owner}
       initialSelectedRepo={repo}
       initialInstallDependencies={installDependencies}

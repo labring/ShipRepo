@@ -5,6 +5,8 @@ import { eq, and, isNull } from 'drizzle-orm'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 import { killSandbox } from '@/lib/sandbox/sandbox-registry'
 import { getServerSession } from '@/lib/session/get-server-session'
+import { CodexGatewayApiError, deleteCodexGatewaySession } from '@/lib/codex-gateway/client'
+import { getCodexGatewayAuthToken, resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
 
 interface RouteParams {
   params: Promise<{
@@ -71,29 +73,47 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         // Log the stop request
         await logger.info('Stop request received - terminating task execution...')
 
+        const gatewayUrl = resolveCodexGatewayUrl(existingTask.runtimeName, existingTask.gatewayUrl)
+        const gatewayAuthToken = await getCodexGatewayAuthToken()
+
+        if (existingTask.gatewaySessionId && gatewayUrl) {
+          try {
+            await deleteCodexGatewaySession(gatewayUrl, existingTask.gatewaySessionId, gatewayAuthToken)
+            await logger.success('Codex gateway session deleted')
+          } catch (error) {
+            if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
+              console.error('Failed to delete Codex gateway session during stop:', error)
+              await logger.error('Failed to delete Codex gateway session')
+            }
+          }
+        }
+
         // Update task status to stopped
         const [updatedTask] = await db
           .update(tasks)
           .set({
             status: 'stopped',
             error: 'Task was stopped by user',
+            gatewaySessionId: null,
             updatedAt: new Date(),
             completedAt: new Date(),
           })
           .where(eq(tasks.id, taskId))
           .returning()
 
-        // Kill the sandbox immediately and aggressively
-        try {
-          const killResult = await killSandbox(taskId)
-          if (killResult.success) {
-            await logger.success('Sandbox killed successfully')
-          } else {
-            await logger.error('Failed to kill sandbox')
+        // Kill the sandbox immediately and aggressively when this task owns one.
+        if (existingTask.sandboxId) {
+          try {
+            const killResult = await killSandbox(taskId)
+            if (killResult.success) {
+              await logger.success('Sandbox killed successfully')
+            } else {
+              await logger.error('Failed to kill sandbox')
+            }
+          } catch (killError) {
+            console.error('Failed to kill sandbox during stop:', killError)
+            await logger.error('Failed to kill sandbox during stop')
           }
-        } catch (killError) {
-          console.error('Failed to kill sandbox during stop:', killError)
-          await logger.error('Failed to kill sandbox during stop')
         }
 
         await logger.error('Task execution stopped by user')

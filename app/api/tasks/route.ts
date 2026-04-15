@@ -20,8 +20,10 @@ import { getServerSession } from '@/lib/session/get-server-session'
 import { getUserGitHubToken } from '@/lib/github/user-token'
 import { getGitHubUser } from '@/lib/github/client'
 import { getUserApiKeys } from '@/lib/api-keys/user-keys'
+import { startCodexGatewayTaskTurn, waitForCodexGatewayTurnCompletion } from '@/lib/codex-gateway/runner'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { getMaxSandboxDuration } from '@/lib/db/settings'
+import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
 
 export async function GET() {
   try {
@@ -209,6 +211,66 @@ export async function POST(request: NextRequest) {
         }
       }
     })
+
+    const shouldUseGateway = validatedData.selectedAgent === 'codex'
+
+    if (shouldUseGateway) {
+      const logger = createTaskLogger(taskId)
+      const [gatewayTaskSource] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
+
+      if (gatewayTaskSource) {
+        try {
+          await ensureTaskDevboxRuntime(gatewayTaskSource, { logger })
+        } catch (error) {
+          console.error('Failed to ensure Devbox runtime for Codex task:', error)
+          await logger.error('Failed to ensure Devbox runtime')
+        }
+      }
+
+      try {
+        const startedTurn = await startCodexGatewayTaskTurn(taskId, validatedData.prompt, {
+          appendUserMessage: true,
+          model: validatedData.selectedModel,
+        })
+
+        after(async () => {
+          try {
+            await waitForCodexGatewayTurnCompletion(startedTurn)
+          } catch (error) {
+            console.error('Failed to finalize Codex gateway task:', error)
+
+            await db
+              .update(tasks)
+              .set({
+                status: 'error',
+                error: 'Failed to finalize Codex gateway task',
+                updatedAt: new Date(),
+              })
+              .where(eq(tasks.id, taskId))
+
+            const logger = createTaskLogger(taskId)
+            await logger.error('Failed to finalize Codex gateway task')
+          }
+        })
+      } catch (error) {
+        console.error('Failed to start Codex gateway task:', error)
+
+        await db
+          .update(tasks)
+          .set({
+            status: 'error',
+            error: 'Failed to start Codex gateway task',
+            updatedAt: new Date(),
+          })
+          .where(eq(tasks.id, taskId))
+
+        const logger = createTaskLogger(taskId)
+        await logger.error('Failed to start Codex gateway task')
+      }
+
+      const [gatewayTask] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
+      return NextResponse.json({ task: gatewayTask || newTask })
+    }
 
     // Get user's API keys, GitHub token, and GitHub user info BEFORE entering after() block (where session is not accessible)
     const userApiKeys = await getUserApiKeys()

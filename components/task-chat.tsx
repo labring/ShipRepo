@@ -1,6 +1,7 @@
 'use client'
 
 import { TaskMessage, Task } from '@/lib/db/schema'
+import type { CodexGatewayState } from '@/lib/codex-gateway/types'
 import { useState, useEffect, useRef, useCallback, Children, isValidElement } from 'react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -28,6 +29,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 interface TaskChatProps {
   taskId: string
   task: Task
+  chatOnly?: boolean
 }
 
 interface PRComment {
@@ -58,8 +60,24 @@ interface DeploymentInfo {
   createdAt?: string
 }
 
-export function TaskChat({ taskId, task }: TaskChatProps) {
+interface GatewaySessionRouteResponse {
+  success: boolean
+  data?: {
+    session: {
+      sessionId: string
+      state: CodexGatewayState
+    } | null
+  }
+  error?: string
+}
+
+export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
   const [messages, setMessages] = useState<TaskMessage[]>([])
+  const [gatewayState, setGatewayState] = useState<CodexGatewayState | null>(null)
+  const [gatewaySessionId, setGatewaySessionId] = useState<string | null>(task.gatewaySessionId)
+  const [gatewayTurnPending, setGatewayTurnPending] = useState(
+    task.selectedAgent === 'codex' && (task.status === 'processing' || task.status === 'pending'),
+  )
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [newMessage, setNewMessage] = useAtom(taskChatInputAtomFamily(taskId))
@@ -72,6 +90,7 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
   const previousMessageCountRef = useRef(0)
   const previousMessagesHashRef = useRef('')
   const wasAtBottomRef = useRef(true)
+  const gatewayEventSourceRef = useRef<EventSource | null>(null)
   const [activeTab, setActiveTab] = useState<'chat' | 'comments' | 'actions' | 'deployments'>('chat')
   const [prComments, setPrComments] = useState<PRComment[]>([])
   const [loadingComments, setLoadingComments] = useState(false)
@@ -91,6 +110,7 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
   const commentsLoadedRef = useRef(false)
   const actionsLoadedRef = useRef(false)
   const deploymentLoadedRef = useRef(false)
+  const isGatewayTask = task.selectedAgent === 'codex'
 
   const isNearBottom = () => {
     const container = scrollContainerRef.current
@@ -136,6 +156,36 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
     },
     [taskId],
   )
+
+  const refreshGatewaySession = useCallback(async (): Promise<boolean> => {
+    if (!isGatewayTask) {
+      return false
+    }
+
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/gateway/session`, {
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        return false
+      }
+
+      const data = (await response.json()) as GatewaySessionRouteResponse
+      const sessionData = data.data?.session
+
+      if (!sessionData) {
+        return false
+      }
+
+      setGatewaySessionId(sessionData.sessionId)
+      setGatewayState(sessionData.state)
+      return true
+    } catch (err) {
+      console.error('Error fetching gateway session:', err)
+      return false
+    }
+  }, [isGatewayTask, taskId])
 
   const fetchPRComments = useCallback(
     async (showLoading = true) => {
@@ -271,6 +321,117 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
 
     return () => clearInterval(interval)
   }, [fetchMessages])
+
+  useEffect(() => {
+    setGatewaySessionId(task.gatewaySessionId)
+  }, [task.gatewaySessionId])
+
+  useEffect(() => {
+    if (!isGatewayTask) {
+      setGatewayTurnPending(false)
+      setGatewaySessionId(null)
+      setGatewayState(null)
+      return
+    }
+
+    if (task.status === 'processing' || task.status === 'pending') {
+      setGatewayTurnPending(true)
+      return
+    }
+
+    setGatewayTurnPending(false)
+  }, [isGatewayTask, task.status])
+
+  useEffect(() => {
+    if (!isGatewayTask || gatewaySessionId || !(task.status === 'processing' || task.status === 'pending')) {
+      return
+    }
+
+    let cancelled = false
+
+    const pollGatewaySession = async () => {
+      const found = await refreshGatewaySession()
+
+      if (found || cancelled) {
+        return
+      }
+
+      window.setTimeout(() => {
+        if (!cancelled) {
+          void pollGatewaySession()
+        }
+      }, 500)
+    }
+
+    void pollGatewaySession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [gatewaySessionId, isGatewayTask, refreshGatewaySession, task.status])
+
+  useEffect(() => {
+    const shouldConnect =
+      isGatewayTask &&
+      Boolean(gatewaySessionId) &&
+      (task.status === 'processing' || task.status === 'pending' || gatewayTurnPending)
+
+    if (!shouldConnect) {
+      gatewayEventSourceRef.current?.close()
+      gatewayEventSourceRef.current = null
+
+      if (task.status !== 'processing' && task.status !== 'pending') {
+        setGatewayState(null)
+      }
+
+      return
+    }
+
+    const source = new EventSource(`/api/tasks/${taskId}/gateway/events`)
+    gatewayEventSourceRef.current = source
+
+    source.addEventListener('state', (event) => {
+      const nextState = JSON.parse(event.data) as CodexGatewayState
+      setGatewayState(nextState)
+
+      if (!nextState.activeTurn && nextState.lastTurnStatus) {
+        setGatewayTurnPending(false)
+        source.close()
+
+        if (gatewayEventSourceRef.current === source) {
+          gatewayEventSourceRef.current = null
+        }
+
+        void fetchMessages(false)
+      }
+    })
+
+    source.addEventListener('session-closed', () => {
+      setGatewayTurnPending(false)
+      setGatewaySessionId(null)
+      source.close()
+
+      if (gatewayEventSourceRef.current === source) {
+        gatewayEventSourceRef.current = null
+      }
+
+      void fetchMessages(false)
+    })
+
+    source.onerror = () => {
+      if (gatewayEventSourceRef.current === source) {
+        gatewayEventSourceRef.current = null
+      }
+    }
+
+    return () => {
+      source.close()
+
+      if (gatewayEventSourceRef.current === source) {
+        gatewayEventSourceRef.current = null
+      }
+    }
+  }, [fetchMessages, gatewaySessionId, gatewayTurnPending, isGatewayTask, task.status, taskId])
 
   // Auto-refresh for active tab (Comments, Checks, Deployments)
   useEffect(() => {
@@ -483,17 +644,20 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
       const data = await response.json()
 
       if (response.ok) {
+        setGatewayTurnPending(isGatewayTask)
         // Refresh messages to show the new user message without loading state
-        await fetchMessages(false)
+        await Promise.all([fetchMessages(false), refreshGatewaySession()])
         // Message was sent successfully, keep it cleared
       } else {
         toast.error(data.error || 'Failed to send message')
         setNewMessage(messageToSend) // Restore the message on error
+        setGatewayTurnPending(false)
       }
     } catch (err) {
       console.error('Error sending message:', err)
       toast.error('Failed to send message')
       setNewMessage(messageToSend) // Restore the message on error
+      setGatewayTurnPending(false)
     } finally {
       setIsSending(false)
     }
@@ -536,14 +700,17 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
       const data = await response.json()
 
       if (response.ok) {
+        setGatewayTurnPending(isGatewayTask)
         // Refresh messages to show the new user message without loading state
-        await fetchMessages(false)
+        await Promise.all([fetchMessages(false), refreshGatewaySession()])
       } else {
         toast.error(data.error || 'Failed to resend message')
+        setGatewayTurnPending(false)
       }
     } catch (err) {
       console.error('Error resending message:', err)
       toast.error('Failed to resend message')
+      setGatewayTurnPending(false)
     } finally {
       setIsSending(false)
     }
@@ -562,6 +729,11 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
       })
 
       if (response.ok) {
+        setGatewayTurnPending(false)
+        setGatewaySessionId(null)
+        setGatewayState(null)
+        gatewayEventSourceRef.current?.close()
+        gatewayEventSourceRef.current = null
         toast.success('Task stopped successfully!')
         // Task will update through polling
       } else {
@@ -587,6 +759,37 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
     } catch {
       // Not valid JSON, return as-is
       return content
+    }
+  }
+
+  const getStreamingAgentMessage = (): TaskMessage | null => {
+    if (!isGatewayTask || !gatewayState) {
+      return null
+    }
+
+    const latestAssistantEntry = [...gatewayState.transcript]
+      .reverse()
+      .find((entry) => entry.role === 'assistant' && entry.text.trim())
+
+    if (!latestAssistantEntry) {
+      return null
+    }
+
+    const latestPersistedAgentMessage = [...messages].reverse().find((message) => message.role === 'agent')
+
+    if (
+      latestPersistedAgentMessage &&
+      parseAgentMessage(latestPersistedAgentMessage.content).trim() === latestAssistantEntry.text.trim()
+    ) {
+      return null
+    }
+
+    return {
+      id: `gateway-stream-${latestAssistantEntry.id}`,
+      taskId,
+      role: 'agent',
+      content: latestAssistantEntry.text,
+      createdAt: new Date(latestAssistantEntry.createdAt),
     }
   }
 
@@ -848,7 +1051,10 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
     }
 
     // Chat tab (default)
-    if (messages.length === 0) {
+    const streamingAgentMessage = getStreamingAgentMessage()
+    const allDisplayMessages = streamingAgentMessage ? [...messages, streamingAgentMessage] : messages
+
+    if (allDisplayMessages.length === 0) {
       return (
         <div className="flex-1 flex items-center justify-center text-center text-muted-foreground">
           <div className="text-sm md:text-base">No messages yet</div>
@@ -856,8 +1062,8 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
       )
     }
 
-    const displayMessages = messages.slice(-10)
-    const hiddenMessagesCount = messages.length - displayMessages.length
+    const displayMessages = allDisplayMessages.slice(-10)
+    const hiddenMessagesCount = allDisplayMessages.length - displayMessages.length
 
     // Group messages by user message boundaries and calculate min-heights
     const messageGroups: { userMessage: TaskMessage; agentMessages: TaskMessage[]; minHeight: number }[] = []
@@ -1160,13 +1366,15 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
 
               // If first message and we have logs, show sandbox setup progress
               if (isFirstMessage && setupLogs.length > 0) {
+                const progressLabel = isGatewayTask ? 'Connecting to Codex gateway...' : 'Setting up sandbox...'
+
                 return (
                   <div className="mt-4">
                     <div className="text-xs px-2">
                       <div className="space-y-1">
                         <div className="text-muted-foreground font-medium mb-2 flex items-center gap-2">
                           <Loader2 className="h-3 w-3 animate-spin" />
-                          Setting up sandbox...
+                          {progressLabel}
                         </div>
                         <div className="space-y-0.5 pl-5">
                           {setupLogs.map((log, idx) => {
@@ -1225,49 +1433,58 @@ export function TaskChat({ taskId, task }: TaskChatProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header Tabs */}
-      <div className="py-2 px-3 flex items-center justify-between gap-1 flex-shrink-0 h-[46px] overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] border-b">
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setActiveTab('chat')}
-            className={`text-sm font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
-              currentTab === 'chat' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
+      {!chatOnly && (
+        <div className="py-2 px-3 flex items-center justify-between gap-1 flex-shrink-0 h-[46px] overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] border-b">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setActiveTab('chat')}
+              className={`text-sm font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
+                currentTab === 'chat' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Chat
+            </button>
+            <button
+              onClick={() => setActiveTab('comments')}
+              className={`text-sm font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
+                currentTab === 'comments' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Comments
+            </button>
+            <button
+              onClick={() => setActiveTab('actions')}
+              className={`text-sm font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
+                currentTab === 'actions' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Checks
+            </button>
+            <button
+              onClick={() => setActiveTab('deployments')}
+              className={`text-sm font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
+                currentTab === 'deployments' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Deployments
+            </button>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRefresh}
+            className="h-6 w-6 p-0 flex-shrink-0"
+            title="Refresh"
           >
-            Chat
-          </button>
-          <button
-            onClick={() => setActiveTab('comments')}
-            className={`text-sm font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
-              currentTab === 'comments' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Comments
-          </button>
-          <button
-            onClick={() => setActiveTab('actions')}
-            className={`text-sm font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
-              currentTab === 'actions' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Checks
-          </button>
-          <button
-            onClick={() => setActiveTab('deployments')}
-            className={`text-sm font-semibold px-2 py-1 rounded transition-colors whitespace-nowrap flex-shrink-0 ${
-              currentTab === 'deployments' ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Deployments
-          </button>
+            <RefreshCw className="h-4 w-4" />
+          </Button>
         </div>
-        <Button variant="ghost" size="sm" onClick={handleRefresh} className="h-6 w-6 p-0 flex-shrink-0" title="Refresh">
-          <RefreshCw className="h-4 w-4" />
-        </Button>
-      </div>
+      )}
 
       {/* Tab Content */}
-      <div className="flex-1 min-h-0 px-3 pt-3 flex flex-col overflow-hidden">{renderTabContent()}</div>
+      <div className={`flex flex-1 min-h-0 flex-col overflow-hidden px-3 ${chatOnly ? 'py-3' : 'pt-3'}`}>
+        {renderTabContent()}
+      </div>
 
       {/* Input Area (only for chat tab) */}
       {activeTab === 'chat' && (

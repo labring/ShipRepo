@@ -2,13 +2,11 @@ import { NextResponse } from 'next/server'
 import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
-import { DevboxApiError, createDevbox, deleteDevbox, getDevbox, listDevboxes } from '@/lib/devbox/client'
-import { getDevboxArchiveAfterPauseTime, getDevboxDefaultImage, getDevboxNamespace } from '@/lib/devbox/config'
-import { createTaskDevboxName } from '@/lib/devbox/naming'
+import { DevboxApiError, deleteDevbox, getDevbox } from '@/lib/devbox/client'
+import { getDevboxNamespace } from '@/lib/devbox/config'
 import type { DevboxInfo, DevboxSshInfo } from '@/lib/devbox/types'
-import { getUserApiKeys, resolveCodexGatewayFromApiKeys } from '@/lib/api-keys/user-keys'
 import { resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
-import { getUserGitHubToken } from '@/lib/github/user-token'
+import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 
@@ -155,8 +153,6 @@ export async function POST(_request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
-    const logger = createTaskLogger(taskId)
-
     if (task.runtimeName) {
       try {
         const existingRuntime = await getDevbox(task.runtimeName)
@@ -196,108 +192,13 @@ export async function POST(_request: Request, { params }: RouteParams) {
           .where(eq(tasks.id, taskId))
       }
     }
-
-    await logger.info('Creating Devbox runtime')
-
-    const existingDevboxes = await listDevboxes(taskId)
-    const existingDevbox = existingDevboxes.data.items[0]
-
-    if (existingDevbox) {
-      const gatewayUrl = resolveCodexGatewayUrl(existingDevbox.name, task.gatewayUrl)
-
-      await db
-        .update(tasks)
-        .set({
-          runtimeProvider: 'devbox',
-          runtimeName: existingDevbox.name,
-          runtimeNamespace: getDevboxNamespace(),
-          runtimeState: existingDevbox.state.phase,
-          gatewayUrl,
-          updatedAt: new Date(),
-        })
-        .where(eq(tasks.id, taskId))
-
-      await logger.success('Linked existing Devbox runtime')
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          runtime: {
-            provider: 'devbox',
-            name: existingDevbox.name,
-            namespace: getDevboxNamespace(),
-            gatewayUrl,
-            state: existingDevbox.state,
-            creationTimestamp: existingDevbox.creationTimestamp,
-            deletionTimestamp: existingDevbox.deletionTimestamp,
-            ssh: null,
-          },
-        },
-      })
-    }
-
-    const githubToken = await getUserGitHubToken()
-    const apiKeys = await getUserApiKeys()
-    const gatewayConfig = resolveCodexGatewayFromApiKeys(apiKeys)
-    const runtimeName = createTaskDevboxName(task.id)
-    const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl)
-
-    const runtimeEnv: Record<string, string> = {
-      TASK_ID: task.id,
-      CODEX_GATEWAY_HOST: '0.0.0.0',
-      CODEX_GATEWAY_PORT: '1317',
-    }
-
-    if (task.repoUrl) {
-      runtimeEnv.REPO_URL = task.repoUrl
-    }
-
-    if (githubToken) {
-      runtimeEnv.GITHUB_TOKEN = githubToken
-    }
-
-    if (gatewayConfig) {
-      runtimeEnv.CODEX_GATEWAY_OPENAI_BASE_URL = gatewayConfig.baseUrl
-      runtimeEnv.CODEX_GATEWAY_OPENAI_API_KEY = gatewayConfig.apiKey
-    }
-
-    if (process.env.CODEX_GATEWAY_JWT_SECRET) {
-      runtimeEnv.CODEX_GATEWAY_JWT_SECRET = process.env.CODEX_GATEWAY_JWT_SECRET
-    }
-
-    const createResponse = await createDevbox({
-      name: runtimeName,
-      image: getDevboxDefaultImage(),
-      upstreamID: task.id,
-      env: runtimeEnv,
-      pauseAt: getPauseAt(task.maxDuration),
-      archiveAfterPauseTime: getDevboxArchiveAfterPauseTime(),
-      labels: [
-        { key: 'app.kubernetes.io/component', value: 'runtime' },
-        { key: 'app.kubernetes.io/managed-by', value: 'coding-agent-template' },
-      ],
-    })
-
-    const infoResponse = await getDevbox(runtimeName)
-
-    await db
-      .update(tasks)
-      .set({
-        runtimeProvider: 'devbox',
-        runtimeName,
-        runtimeNamespace: createResponse.data.namespace,
-        runtimeState: infoResponse.data.state.phase,
-        gatewayUrl,
-        updatedAt: new Date(),
-      })
-      .where(eq(tasks.id, taskId))
-
-    await logger.success('Devbox runtime created')
+    const logger = createTaskLogger(taskId)
+    const runtime = await ensureTaskDevboxRuntime(task, { logger })
 
     return NextResponse.json({
       success: true,
       data: {
-        runtime: buildRuntimeResponse(runtimeName, createResponse.data.namespace, gatewayUrl, infoResponse.data),
+        runtime,
       },
     })
   } catch (error) {

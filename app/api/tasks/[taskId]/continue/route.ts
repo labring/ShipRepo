@@ -14,6 +14,8 @@ import { decrypt } from '@/lib/crypto'
 import { getUserGitHubToken } from '@/lib/github/user-token'
 import { getGitHubUser } from '@/lib/github/client'
 import { getUserApiKeys } from '@/lib/api-keys/user-keys'
+import { startCodexGatewayTaskTurn, waitForCodexGatewayTurnCompletion } from '@/lib/codex-gateway/runner'
+import { shouldUseCodexGatewayTask } from '@/lib/codex-gateway/task'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { getMaxSandboxDuration } from '@/lib/db/settings'
 import { generateCommitMessage, createFallbackCommitMessage } from '@/lib/utils/commit-message-generator'
@@ -60,9 +62,40 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
+    const shouldUseGateway = shouldUseCodexGatewayTask(task)
+
     // Check if task has a branch name (required to continue)
-    if (!task.branchName) {
+    if (!shouldUseGateway && !task.branchName) {
       return NextResponse.json({ error: 'Task does not have a branch to continue from' }, { status: 400 })
+    }
+
+    if (shouldUseGateway) {
+      const startedTurn = await startCodexGatewayTaskTurn(taskId, message.trim(), {
+        appendUserMessage: true,
+        model: task.selectedModel,
+      })
+
+      after(async () => {
+        try {
+          await waitForCodexGatewayTurnCompletion(startedTurn)
+        } catch (error) {
+          console.error('Failed to finalize Codex gateway follow-up:', error)
+
+          await db
+            .update(tasks)
+            .set({
+              status: 'error',
+              error: 'Failed to finalize Codex gateway follow-up',
+              updatedAt: new Date(),
+            })
+            .where(eq(tasks.id, taskId))
+
+          const logger = createTaskLogger(taskId)
+          await logger.error('Failed to finalize Codex gateway follow-up')
+        }
+      })
+
+      return NextResponse.json({ success: true })
     }
 
     // Save the user's message

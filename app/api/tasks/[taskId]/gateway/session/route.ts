@@ -123,10 +123,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
-    if (!task.runtimeName) {
-      return NextResponse.json({ error: 'Task does not have an active runtime' }, { status: 400 })
-    }
-
     if (!gatewayUrl) {
       return createGatewayUnavailableResponse()
     }

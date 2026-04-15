@@ -21,16 +21,16 @@ export function resolveCodexGatewayUrl(
     return existingUrl
   }
 
-  if (!runtimeName) {
-    return null
-  }
-
   const template = getCodexGatewayUrlTemplate()
   if (!template) {
     return null
   }
 
-  return template.replaceAll('{name}', runtimeName).replaceAll('{port}', getCodexGatewayPort())
+  if (!runtimeName && template.includes('{name}')) {
+    return null
+  }
+
+  return template.replaceAll('{name}', runtimeName || '').replaceAll('{port}', getCodexGatewayPort())
 }
 
 export async function getCodexGatewayAuthToken(): Promise<string | null> {

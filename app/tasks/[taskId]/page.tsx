@@ -1,4 +1,4 @@
-import { TaskPageClient } from '@/components/task-page-client'
+import { SealosTaskPageClient } from '@/components/sealos-task-page-client'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { getGitHubStars } from '@/lib/github-stars'
 import { getMaxSandboxDuration } from '@/lib/db/settings'
@@ -20,7 +20,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
   const stars = await getGitHubStars()
 
   return (
-    <TaskPageClient
+    <SealosTaskPageClient
       taskId={taskId}
       user={session?.user ?? null}
       authProvider={session?.authProvider ?? null}
@@ -65,7 +65,7 @@ export async function generateMetadata({ params }: TaskPageProps): Promise<Metad
   }
 
   return {
-    title: `${pageTitle} - Coding Agent Platform`,
-    description: 'View task details and execution logs',
+    title: `${pageTitle} - Sealos Deploy`,
+    description: 'View the current task conversation and deployment workflow',
   }
 }
