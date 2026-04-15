@@ -86,13 +86,10 @@ export function SealosTaskPageClient({ taskId, initialStars = 1200 }: SealosTask
       </div>
 
       <div className="flex-1 min-h-0 px-4 py-4">
-        <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-2xl border bg-background">
-          <div className="border-b px-5 py-4">
+        <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-background">
+          <div className="px-5 py-4">
             <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Current Phase</p>
             <h2 className="mt-2 text-xl font-semibold leading-tight">{task.title || task.prompt}</h2>
-            <p className="mt-2 text-sm text-muted-foreground">
-              正在通过任务级 gateway 代理连接 Codex。当前页面只保留 chat 主链路。
-            </p>
           </div>
 
           <div className="flex-1 min-h-0">

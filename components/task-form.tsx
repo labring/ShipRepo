@@ -120,41 +120,43 @@ export function TaskForm({
   }
 
   return (
-    <div className="w-full max-w-3xl">
-      <div className="mb-10 text-center">
-        <h1 className="text-4xl font-bold tracking-tight">Deploy on Sealos</h1>
-        <p className="mt-3 text-sm text-muted-foreground">
-          当前阶段先打通本地 Codex Gateway，对话链路稳定后再切换到 Devbox 内 gateway。
+    <div className="w-full max-w-2xl">
+      <div className="mb-8 text-center">
+        <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Deploy Your Project to Sealos</h1>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Select a GitHub repository and describe how it should be analyzed, built, and deployed.
         </p>
       </div>
 
       <form onSubmit={handleSubmit}>
-        <div className="overflow-hidden rounded-3xl border bg-background shadow-sm">
-          <div className="border-b bg-muted/20 px-5 py-3 text-xs text-muted-foreground">
+        <div className="overflow-hidden rounded-2xl border bg-background shadow-sm">
+          <div className="border-b bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
             {selectedOwner && selectedRepo
               ? `${selectedOwner}/${selectedRepo}`
-              : '先在顶部选择一个 GitHub 仓库，然后输入 deploy on sealos。'}
+              : 'Select a GitHub repository to begin.'}
           </div>
 
           <div className="bg-transparent">
             <Textarea
               ref={textareaRef}
               id="prompt"
-              placeholder="输入 deploy on sealos，或者描述你希望系统如何分析并部署这个仓库。"
+              placeholder="Describe how this repository should be analyzed, built, and deployed on Sealos."
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               onKeyDown={handleTextareaKeyDown}
               disabled={isSubmitting}
               required
-              rows={6}
-              className="min-h-[220px] w-full resize-none border-0 bg-transparent px-5 py-5 text-base shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+              rows={4}
+              className="min-h-[140px] w-full resize-none border-0 bg-transparent px-4 py-4 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 sm:text-base"
             />
           </div>
 
-          <div className="flex items-center justify-between gap-3 px-5 py-4">
-            <div className="text-xs text-muted-foreground">固定运行时: Codex Gateway · gpt-5.3-codex</div>
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <div className="text-xs text-muted-foreground">
+              Example: detect the runtime, build the image, and deploy it to Sealos.
+            </div>
 
-            <Button type="submit" disabled={isSubmitting || !prompt.trim()} className="h-10 rounded-full px-4">
+            <Button type="submit" disabled={isSubmitting || !prompt.trim()} className="h-9 rounded-full px-3">
               {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
             </Button>
           </div>

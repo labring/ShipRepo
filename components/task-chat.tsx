@@ -643,7 +643,6 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
         setGatewayTurnPending(isGatewayTask)
         // Refresh messages to show the new user message without loading state
         await Promise.all([fetchMessages(false), refreshGatewaySession()])
-        // Message was sent successfully, keep it cleared
       } else {
         toast.error(data.error || 'Failed to send message')
         setNewMessage(messageToSend) // Restore the message on error
@@ -772,10 +771,16 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
     }
 
     const latestPersistedAgentMessage = [...messages].reverse().find((message) => message.role === 'agent')
+    const latestPersistedContent = latestPersistedAgentMessage
+      ? parseAgentMessage(latestPersistedAgentMessage.content).trim()
+      : ''
+    const latestStreamingContent = latestAssistantEntry.text.trim()
 
     if (
       latestPersistedAgentMessage &&
-      parseAgentMessage(latestPersistedAgentMessage.content).trim() === latestAssistantEntry.text.trim()
+      (latestPersistedContent === latestStreamingContent ||
+        latestPersistedContent.startsWith(latestStreamingContent) ||
+        latestStreamingContent.startsWith(latestPersistedContent))
     ) {
       return null
     }
