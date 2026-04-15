@@ -18,6 +18,7 @@ export async function GET(req: NextRequest) {
 
     const userKeys = await db
       .select({
+        baseUrl: keys.baseUrl,
         provider: keys.provider,
         createdAt: keys.createdAt,
       })
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json()
-    const { provider, apiKey } = body as { provider: Provider; apiKey: string }
+    const { provider, apiKey, baseUrl } = body as { apiKey: string; baseUrl?: string; provider: Provider }
 
     if (!provider || !apiKey) {
       return NextResponse.json({ error: 'Provider and API key are required' }, { status: 400 })
@@ -51,6 +52,10 @@ export async function POST(req: NextRequest) {
 
     if (!['openai', 'gemini', 'cursor', 'anthropic', 'aigateway', 'aiproxy'].includes(provider)) {
       return NextResponse.json({ error: 'Invalid provider' }, { status: 400 })
+    }
+
+    if (provider === 'aiproxy' && !baseUrl) {
+      return NextResponse.json({ error: 'Base URL is required' }, { status: 400 })
     }
 
     // Check if key already exists
@@ -67,6 +72,7 @@ export async function POST(req: NextRequest) {
       await db
         .update(keys)
         .set({
+          baseUrl: provider === 'aiproxy' ? baseUrl : null,
           value: encryptedKey,
           updatedAt: new Date(),
         })
@@ -74,6 +80,7 @@ export async function POST(req: NextRequest) {
     } else {
       // Insert new
       await db.insert(keys).values({
+        baseUrl: provider === 'aiproxy' ? baseUrl : null,
         id: nanoid(),
         userId: session.user.id,
         provider,

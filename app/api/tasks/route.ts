@@ -83,6 +83,10 @@ export async function POST(request: NextRequest) {
       logs: [],
     })
 
+    if (validatedData.selectedAgent !== 'codex') {
+      return NextResponse.json({ error: 'Unsupported agent' }, { status: 400 })
+    }
+
     // Insert the task into the database - ensure id is definitely present
     const [newTask] = await db
       .insert(tasks)
@@ -212,99 +216,61 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    const shouldUseGateway = validatedData.selectedAgent === 'codex'
+    const logger = createTaskLogger(taskId)
+    const [gatewayTaskSource] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
 
-    if (shouldUseGateway) {
-      const logger = createTaskLogger(taskId)
-      const [gatewayTaskSource] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
-
-      if (gatewayTaskSource) {
-        try {
-          await ensureTaskDevboxRuntime(gatewayTaskSource, { logger })
-        } catch (error) {
-          console.error('Failed to ensure Devbox runtime for Codex task:', error)
-          await logger.error('Failed to ensure Devbox runtime')
-        }
-      }
-
+    if (gatewayTaskSource) {
       try {
-        const startedTurn = await startCodexGatewayTaskTurn(taskId, validatedData.prompt, {
-          appendUserMessage: true,
-          model: validatedData.selectedModel,
-        })
-
-        after(async () => {
-          try {
-            await waitForCodexGatewayTurnCompletion(startedTurn)
-          } catch (error) {
-            console.error('Failed to finalize Codex gateway task:', error)
-
-            await db
-              .update(tasks)
-              .set({
-                status: 'error',
-                error: 'Failed to finalize Codex gateway task',
-                updatedAt: new Date(),
-              })
-              .where(eq(tasks.id, taskId))
-
-            const logger = createTaskLogger(taskId)
-            await logger.error('Failed to finalize Codex gateway task')
-          }
-        })
+        await ensureTaskDevboxRuntime(gatewayTaskSource, { logger })
       } catch (error) {
-        console.error('Failed to start Codex gateway task:', error)
-
-        await db
-          .update(tasks)
-          .set({
-            status: 'error',
-            error: 'Failed to start Codex gateway task',
-            updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, taskId))
-
-        const logger = createTaskLogger(taskId)
-        await logger.error('Failed to start Codex gateway task')
+        console.error('Failed to ensure Devbox runtime for Codex task:', error)
+        await logger.error('Failed to ensure Devbox runtime')
       }
-
-      const [gatewayTask] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
-      return NextResponse.json({ task: gatewayTask || newTask })
     }
 
-    // Get user's API keys, GitHub token, and GitHub user info BEFORE entering after() block (where session is not accessible)
-    const userApiKeys = await getUserApiKeys()
-    const userGithubToken = await getUserGitHubToken()
-    const githubUser = await getGitHubUser()
-    // Get max sandbox duration for this user (user-specific > global > env var)
-    const maxSandboxDuration = await getMaxSandboxDuration(session.user.id)
+    try {
+      const startedTurn = await startCodexGatewayTaskTurn(taskId, validatedData.prompt, {
+        appendUserMessage: true,
+        model: validatedData.selectedModel,
+      })
 
-    // Process the task asynchronously with timeout
-    // CRITICAL: Wrap in after() to ensure Vercel doesn't kill the function after response
-    // Without this, serverless functions terminate immediately after sending the response
-    after(async () => {
-      try {
-        await processTaskWithTimeout(
-          newTask.id,
-          validatedData.prompt,
-          validatedData.repoUrl || '',
-          validatedData.maxDuration || maxSandboxDuration,
-          validatedData.selectedAgent || 'claude',
-          validatedData.selectedModel,
-          validatedData.installDependencies || false,
-          validatedData.keepAlive || false,
-          validatedData.enableBrowser || false,
-          userApiKeys,
-          userGithubToken,
-          githubUser,
-        )
-      } catch (error) {
-        console.error('Task processing failed:', error)
-        // Error handling is already done inside processTaskWithTimeout
-      }
-    })
+      after(async () => {
+        try {
+          await waitForCodexGatewayTurnCompletion(startedTurn)
+        } catch (error) {
+          console.error('Failed to finalize Codex gateway task:', error)
 
-    return NextResponse.json({ task: newTask })
+          await db
+            .update(tasks)
+            .set({
+              status: 'error',
+              error: 'Failed to finalize Codex gateway task',
+              updatedAt: new Date(),
+            })
+            .where(eq(tasks.id, taskId))
+
+          const logger = createTaskLogger(taskId)
+          await logger.error('Failed to finalize Codex gateway task')
+        }
+      })
+    } catch (error) {
+      console.error('Failed to start Codex gateway task:', error)
+
+      await db
+        .update(tasks)
+        .set({
+          status: 'error',
+          error: 'Failed to start Codex gateway task',
+          updatedAt: new Date(),
+        })
+        .where(eq(tasks.id, taskId))
+
+      const logger = createTaskLogger(taskId)
+      await logger.error('Failed to start Codex gateway task')
+    }
+
+    const [gatewayTask] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
+    return NextResponse.json({ task: gatewayTask || newTask })
   } catch (error) {
     console.error('Error creating task:', error)
     return NextResponse.json({ error: 'Failed to create task' }, { status: 500 })

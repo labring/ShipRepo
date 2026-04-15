@@ -9,6 +9,48 @@ interface RouteParams {
   }>
 }
 
+function createLoggedEventStream(stream: ReadableStream<Uint8Array>, taskId: string) {
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  let buffer = ''
+
+  return stream.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      flush(controller) {
+        if (buffer.trim()) {
+          console.info('Codex gateway event:', {
+            payload: buffer.trim(),
+            taskId,
+          })
+        }
+
+        controller.terminate()
+      },
+      transform(chunk, controller) {
+        const text = decoder.decode(chunk, { stream: true })
+        buffer += text
+
+        let boundary = buffer.indexOf('\n\n')
+        while (boundary !== -1) {
+          const eventBlock = buffer.slice(0, boundary).trim()
+          buffer = buffer.slice(boundary + 2)
+
+          if (eventBlock) {
+            console.info('Codex gateway event:', {
+              payload: eventBlock,
+              taskId,
+            })
+          }
+
+          boundary = buffer.indexOf('\n\n')
+        }
+
+        controller.enqueue(encoder.encode(text))
+      },
+    }),
+  )
+}
+
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
     const session = await getServerSession()
@@ -47,7 +89,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     headers.set('cache-control', 'no-cache, no-transform')
     headers.set('connection', 'keep-alive')
 
-    return new Response(upstream.body, {
+    return new Response(createLoggedEventStream(upstream.body, taskId), {
       status: 200,
       headers,
     })

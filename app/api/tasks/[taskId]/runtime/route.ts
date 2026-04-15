@@ -89,8 +89,8 @@ export async function GET(_request: Request, { params }: RouteParams) {
 
     try {
       const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
-      const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl)
       const response = await getDevbox(task.runtimeName)
+      const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, response.data)
 
       await db
         .update(tasks)
@@ -157,7 +157,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
       try {
         const existingRuntime = await getDevbox(task.runtimeName)
         const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
-        const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl)
+        const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, existingRuntime.data)
 
         await db
           .update(tasks)

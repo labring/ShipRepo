@@ -7,8 +7,8 @@ import {
   CodexGatewayApiError,
   createCodexGatewaySession,
   deleteCodexGatewaySession,
-  getCodexGatewayReady,
   getCodexGatewaySessionState,
+  waitForCodexGatewayReady,
 } from '@/lib/codex-gateway/client'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 import { getServerSession } from '@/lib/session/get-server-session'
@@ -173,7 +173,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     await logger.info('Checking Codex gateway readiness')
-    await getCodexGatewayReady(gatewayUrl)
+    await waitForCodexGatewayReady(gatewayUrl)
 
     await logger.info('Creating Codex gateway session')
     const created = await createCodexGatewaySession(gatewayUrl, { model: parsed.data.model }, gatewayAuthToken)

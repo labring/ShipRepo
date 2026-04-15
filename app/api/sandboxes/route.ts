@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
-import { eq, and, isNotNull } from 'drizzle-orm'
+import { eq, and, isNotNull, or } from 'drizzle-orm'
 import { getServerSession } from '@/lib/session/get-server-session'
 
 export async function GET() {
@@ -11,14 +11,17 @@ export async function GET() {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Fetch all tasks with active sandboxes (sandboxId is not null) for this user
-    const runningSandboxes = await db
+    const taskRuntimes = await db
       .select({
         id: tasks.id,
         taskId: tasks.id,
         prompt: tasks.prompt,
         repoUrl: tasks.repoUrl,
         branchName: tasks.branchName,
+        runtimeProvider: tasks.runtimeProvider,
+        runtimeName: tasks.runtimeName,
+        runtimeState: tasks.runtimeState,
+        gatewayUrl: tasks.gatewayUrl,
         sandboxId: tasks.sandboxId,
         sandboxUrl: tasks.sandboxUrl,
         createdAt: tasks.createdAt,
@@ -27,8 +30,13 @@ export async function GET() {
         maxDuration: tasks.maxDuration,
       })
       .from(tasks)
-      .where(and(eq(tasks.userId, session.user.id), isNotNull(tasks.sandboxId)))
+      .where(and(eq(tasks.userId, session.user.id), or(isNotNull(tasks.sandboxId), isNotNull(tasks.runtimeName))))
       .orderBy(tasks.createdAt)
+
+    const runningSandboxes = taskRuntimes.map((taskRuntime) => ({
+      ...taskRuntime,
+      provider: taskRuntime.runtimeName ? taskRuntime.runtimeProvider || 'devbox' : 'sandbox',
+    }))
 
     return NextResponse.json({
       sandboxes: runningSandboxes,

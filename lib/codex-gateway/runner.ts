@@ -2,9 +2,9 @@ import { eq } from 'drizzle-orm'
 import {
   CodexGatewayApiError,
   createCodexGatewaySession,
-  getCodexGatewayReady,
   getCodexGatewaySessionState,
   sendCodexGatewayTurn,
+  waitForCodexGatewayReady,
 } from '@/lib/codex-gateway/client'
 import { getTaskGatewayContextById, normalizeCodexGatewayModel } from '@/lib/codex-gateway/task'
 import { db } from '@/lib/db/client'
@@ -92,7 +92,6 @@ export async function startCodexGatewayTaskTurn(
       if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
         throw error
       }
-
       gatewaySessionId = null
 
       await db
@@ -107,7 +106,7 @@ export async function startCodexGatewayTaskTurn(
 
   if (!gatewaySessionId) {
     await logger.info('Checking Codex gateway readiness')
-    await getCodexGatewayReady(gatewayUrl)
+    await waitForCodexGatewayReady(gatewayUrl)
 
     await logger.info('Creating Codex gateway session')
     const created = await createCodexGatewaySession(

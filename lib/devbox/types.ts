@@ -32,12 +32,26 @@ export interface DevboxSshInfo {
   privateKeyBase64?: string
 }
 
+export interface DevboxGatewayInfo {
+  url?: string
+  route?: string
+  externalURL?: string
+  appURL?: string
+  accessURL?: string
+  token?: string
+  jwt?: string
+  authToken?: string
+  bearerToken?: string
+  accessToken?: string
+}
+
 export interface DevboxInfo {
   name: string
   creationTimestamp: string | null
   deletionTimestamp: string | null
   state: DevboxState
   ssh?: DevboxSshInfo
+  gateway?: DevboxGatewayInfo
 }
 
 export interface CreateDevboxLabel {

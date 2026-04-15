@@ -6,7 +6,7 @@ import { createTaskLogger } from '@/lib/utils/task-logger'
 import { killSandbox } from '@/lib/sandbox/sandbox-registry'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { CodexGatewayApiError, deleteCodexGatewaySession } from '@/lib/codex-gateway/client'
-import { getCodexGatewayAuthToken, resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
+import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 
 interface RouteParams {
   params: Promise<{
@@ -73,8 +73,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         // Log the stop request
         await logger.info('Stop request received - terminating task execution...')
 
-        const gatewayUrl = resolveCodexGatewayUrl(existingTask.runtimeName, existingTask.gatewayUrl)
-        const gatewayAuthToken = await getCodexGatewayAuthToken()
+        const { gatewayUrl, gatewayAuthToken } = await getTaskGatewayContext(taskId, session.user.id)
 
         if (existingTask.gatewaySessionId && gatewayUrl) {
           try {

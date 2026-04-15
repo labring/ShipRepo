@@ -97,7 +97,7 @@ export async function ensureTaskDevboxRuntime(
     try {
       const existingRuntime = await getDevbox(task.runtimeName)
       const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
-      const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl)
+      const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, existingRuntime.data)
 
       await db
         .update(tasks)
@@ -172,8 +172,6 @@ export async function ensureTaskDevboxRuntime(
     options.gatewayConfig === undefined ? resolveCodexGatewayFromApiKeys(await getUserApiKeys()) : options.gatewayConfig
 
   const runtimeName = createTaskDevboxName(task.id)
-  const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl)
-
   const runtimeEnv: Record<string, string> = {
     TASK_ID: task.id,
     CODEX_GATEWAY_HOST: '0.0.0.0',
@@ -213,6 +211,7 @@ export async function ensureTaskDevboxRuntime(
   })
 
   const infoResponse = await getDevbox(runtimeName)
+  const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl, infoResponse.data)
 
   await db
     .update(tasks)

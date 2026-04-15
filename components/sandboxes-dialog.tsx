@@ -19,9 +19,14 @@ interface Sandbox {
   prompt: string
   repoUrl: string
   branchName: string
+  provider: string
+  runtimeProvider: string | null
+  runtimeName: string | null
+  runtimeState: string | null
+  gatewayUrl: string | null
   sandboxId: string
   sandboxUrl: string | null
-  createdAt: Date
+  createdAt: string
   status: string
   keepAlive: boolean
   maxDuration: number | null
@@ -56,24 +61,25 @@ export function SandboxesDialog({ open, onOpenChange }: SandboxesDialogProps) {
     }
   }
 
-  const handleStopSandbox = async (taskId: string) => {
-    setStoppingId(taskId)
+  const handleStopSandbox = async (sandbox: Sandbox) => {
+    setStoppingId(sandbox.taskId)
     try {
-      const response = await fetch(`/api/tasks/${taskId}/stop-sandbox`, {
-        method: 'POST',
+      const isDevboxRuntime = sandbox.provider === 'devbox'
+      const response = await fetch(`/api/tasks/${sandbox.taskId}/${isDevboxRuntime ? 'runtime' : 'stop-sandbox'}`, {
+        method: isDevboxRuntime ? 'DELETE' : 'POST',
       })
 
       if (response.ok) {
-        toast.success('Sandbox stopped successfully!')
+        toast.success(isDevboxRuntime ? 'Runtime stopped successfully!' : 'Sandbox stopped successfully!')
         // Remove from list
-        setSandboxes((prev) => prev.filter((s) => s.taskId !== taskId))
+        setSandboxes((prev) => prev.filter((s) => s.taskId !== sandbox.taskId))
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to stop sandbox')
+        toast.error(error.error || (isDevboxRuntime ? 'Failed to stop runtime' : 'Failed to stop sandbox'))
       }
     } catch (error) {
-      console.error('Error stopping sandbox:', error)
-      toast.error('Failed to stop sandbox')
+      console.error('Error stopping runtime:', error)
+      toast.error(sandbox.provider === 'devbox' ? 'Failed to stop runtime' : 'Failed to stop sandbox')
     } finally {
       setStoppingId(null)
     }
@@ -104,12 +110,16 @@ export function SandboxesDialog({ open, onOpenChange }: SandboxesDialogProps) {
     return `${minutes}m`
   }
 
+  const getOpenUrl = (sandbox: Sandbox) => sandbox.sandboxUrl || sandbox.gatewayUrl
+
+  const getEnvironmentLabel = (sandbox: Sandbox) => (sandbox.provider === 'devbox' ? 'Devbox' : 'Sandbox')
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle>Running Sandboxes</DialogTitle>
-          <DialogDescription>Manage your active sandbox environments</DialogDescription>
+          <DialogTitle>Running Environments</DialogTitle>
+          <DialogDescription>Manage your active sandbox and devbox environments</DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto">
@@ -120,7 +130,7 @@ export function SandboxesDialog({ open, onOpenChange }: SandboxesDialogProps) {
           ) : sandboxes.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-8 text-center">
               <Server className="h-12 w-12 text-muted-foreground/50 mb-3" />
-              <p className="text-sm text-muted-foreground">No running sandboxes</p>
+              <p className="text-sm text-muted-foreground">No running environments</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -133,13 +143,16 @@ export function SandboxesDialog({ open, onOpenChange }: SandboxesDialogProps) {
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium text-sm truncate">{sandbox.prompt}</h3>
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mt-1">
+                          <span className="rounded-full border px-2 py-0.5">{getEnvironmentLabel(sandbox)}</span>
                           {sandbox.branchName && <span className="font-mono">{sandbox.branchName}</span>}
-                        </p>
+                          {sandbox.runtimeName && <span className="font-mono">{sandbox.runtimeName}</span>}
+                          {sandbox.runtimeState && <span>{sandbox.runtimeState}</span>}
+                        </div>
                       </div>
                       {sandbox.keepAlive && (
                         <span className="text-xs text-muted-foreground whitespace-nowrap">
-                          {calculateTimeRemaining(sandbox.createdAt, sandbox.maxDuration)} remaining
+                          {calculateTimeRemaining(new Date(sandbox.createdAt), sandbox.maxDuration)} remaining
                         </span>
                       )}
                     </div>
@@ -153,18 +166,18 @@ export function SandboxesDialog({ open, onOpenChange }: SandboxesDialogProps) {
                       >
                         View Task
                       </Button>
-                      {sandbox.sandboxUrl && (
-                        <Link href={sandbox.sandboxUrl} target="_blank" rel="noopener noreferrer">
+                      {getOpenUrl(sandbox) && (
+                        <Link href={getOpenUrl(sandbox)!} target="_blank" rel="noopener noreferrer">
                           <Button variant="outline" size="sm" className="h-7 text-xs">
                             <ExternalLink className="h-3 w-3 mr-1" />
-                            Preview
+                            {sandbox.provider === 'devbox' ? 'Gateway' : 'Preview'}
                           </Button>
                         </Link>
                       )}
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => handleStopSandbox(sandbox.taskId)}
+                        onClick={() => handleStopSandbox(sandbox)}
                         disabled={stoppingId === sandbox.taskId}
                         className="h-7 text-xs ml-auto"
                       >
@@ -173,7 +186,7 @@ export function SandboxesDialog({ open, onOpenChange }: SandboxesDialogProps) {
                         ) : (
                           <StopCircle className="h-3 w-3 mr-1" />
                         )}
-                        Stop
+                        {sandbox.provider === 'devbox' ? 'Stop Runtime' : 'Stop'}
                       </Button>
                     </div>
                   </div>

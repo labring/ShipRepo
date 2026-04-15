@@ -171,6 +171,8 @@ const DEFAULT_MODELS = {
 } as const
 
 export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps) {
+  const isDevboxRuntimeTask = task.runtimeProvider === 'devbox' || Boolean(task.runtimeName)
+  const stopEnvironmentLabel = isDevboxRuntimeTask ? 'Stop Runtime' : 'Stop Sandbox'
   const [optimisticStatus, setOptimisticStatus] = useState<Task['status'] | null>(null)
   const [mcpServers, setMcpServers] = useState<Connector[]>([])
   const [loadingMcpServers, setLoadingMcpServers] = useState(false)
@@ -1356,21 +1358,21 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
   const handleStopSandbox = async () => {
     setIsStoppingSandbox(true)
     try {
-      const response = await fetch(`/api/tasks/${task.id}/stop-sandbox`, {
-        method: 'POST',
+      const response = await fetch(`/api/tasks/${task.id}/${isDevboxRuntimeTask ? 'runtime' : 'stop-sandbox'}`, {
+        method: isDevboxRuntimeTask ? 'DELETE' : 'POST',
       })
 
       if (response.ok) {
-        toast.success('Sandbox stopped successfully!')
+        toast.success(isDevboxRuntimeTask ? 'Runtime stopped successfully!' : 'Sandbox stopped successfully!')
         // Refresh tasks to update UI
         await refreshTasks()
       } else {
         const error = await response.json()
-        toast.error(error.error || 'Failed to stop sandbox')
+        toast.error(error.error || (isDevboxRuntimeTask ? 'Failed to stop runtime' : 'Failed to stop sandbox'))
       }
     } catch (error) {
-      console.error('Error stopping sandbox:', error)
-      toast.error('Failed to stop sandbox')
+      console.error('Error stopping runtime:', error)
+      toast.error(isDevboxRuntimeTask ? 'Failed to stop runtime' : 'Failed to stop sandbox')
     } finally {
       setIsStoppingSandbox(false)
     }
@@ -2019,7 +2021,7 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
                                     Stopping...
                                   </>
                                 ) : (
-                                  'Stop Sandbox'
+                                  stopEnvironmentLabel
                                 )}
                               </DropdownMenuItem>
                             )}
@@ -2268,7 +2270,7 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
                                     Stopping...
                                   </>
                                 ) : (
-                                  'Stop Sandbox'
+                                  stopEnvironmentLabel
                                 )}
                               </DropdownMenuItem>
                             ) : (

@@ -26,7 +26,11 @@ export interface GatewayConfig {
   envKey: 'AI_GATEWAY_API_KEY' | 'AIPROXY_API_KEY'
 }
 
-export function resolveGatewayFromApiKeys(apiKeys?: { AI_GATEWAY_API_KEY?: string; AIPROXY_API_KEY?: string }) {
+export function resolveGatewayFromApiKeys(apiKeys?: {
+  AI_GATEWAY_API_KEY?: string
+  AIPROXY_API_KEY?: string
+  AIPROXY_BASE_URL?: string
+}) {
   const aiGatewayKey = apiKeys?.AI_GATEWAY_API_KEY || process.env.AI_GATEWAY_API_KEY
   if (aiGatewayKey) {
     return {
@@ -42,7 +46,7 @@ export function resolveGatewayFromApiKeys(apiKeys?: { AI_GATEWAY_API_KEY?: strin
     return {
       provider: 'aiproxy' as const,
       apiKey: aiProxyKey,
-      baseUrl: GATEWAY_BASE_URLS.aiproxy,
+      baseUrl: apiKeys?.AIPROXY_BASE_URL || process.env.AIPROXY_BASE_URL || GATEWAY_BASE_URLS.aiproxy,
       envKey: GATEWAY_ENV_KEYS.aiproxy,
     }
   }
@@ -53,13 +57,14 @@ export function resolveGatewayFromApiKeys(apiKeys?: { AI_GATEWAY_API_KEY?: strin
 export function resolveCodexGatewayFromApiKeys(apiKeys?: {
   AI_GATEWAY_API_KEY?: string
   AIPROXY_API_KEY?: string
+  AIPROXY_BASE_URL?: string
 }): GatewayConfig | null {
   const aiProxyKey = apiKeys?.AIPROXY_API_KEY || process.env.AIPROXY_API_KEY
   if (aiProxyKey) {
     return {
       provider: 'aiproxy',
       apiKey: aiProxyKey,
-      baseUrl: GATEWAY_BASE_URLS.aiproxy,
+      baseUrl: apiKeys?.AIPROXY_BASE_URL || process.env.AIPROXY_BASE_URL || GATEWAY_BASE_URLS.aiproxy,
       envKey: GATEWAY_ENV_KEYS.aiproxy,
     }
   }
@@ -88,6 +93,7 @@ export async function getUserApiKeys(): Promise<{
   ANTHROPIC_API_KEY: string | undefined
   AI_GATEWAY_API_KEY: string | undefined
   AIPROXY_API_KEY: string | undefined
+  AIPROXY_BASE_URL: string | undefined
 }> {
   const session = await getServerSession()
 
@@ -99,6 +105,7 @@ export async function getUserApiKeys(): Promise<{
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
     AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY,
     AIPROXY_API_KEY: process.env.AIPROXY_API_KEY,
+    AIPROXY_BASE_URL: process.env.AIPROXY_BASE_URL || GATEWAY_BASE_URLS.aiproxy,
   }
 
   if (!session?.user?.id) {
@@ -129,6 +136,7 @@ export async function getUserApiKeys(): Promise<{
           break
         case 'aiproxy':
           apiKeys.AIPROXY_API_KEY = decryptedValue
+          apiKeys.AIPROXY_BASE_URL = key.baseUrl || process.env.AIPROXY_BASE_URL || GATEWAY_BASE_URLS.aiproxy
           break
       }
     })
@@ -176,4 +184,36 @@ export async function getUserApiKey(provider: Provider): Promise<string | undefi
   }
 
   return systemKeys[provider]
+}
+
+export async function getUserAiProxyConfig(): Promise<{ apiKey?: string; baseUrl?: string }> {
+  const session = await getServerSession()
+
+  const fallback = {
+    apiKey: process.env.AIPROXY_API_KEY,
+    baseUrl: process.env.AIPROXY_BASE_URL || GATEWAY_BASE_URLS.aiproxy,
+  }
+
+  if (!session?.user?.id) {
+    return fallback
+  }
+
+  try {
+    const userKey = await db
+      .select({ baseUrl: keys.baseUrl, value: keys.value })
+      .from(keys)
+      .where(and(eq(keys.userId, session.user.id), eq(keys.provider, 'aiproxy')))
+      .limit(1)
+
+    if (userKey[0]?.value) {
+      return {
+        apiKey: decrypt(userKey[0].value),
+        baseUrl: userKey[0].baseUrl || process.env.AIPROXY_BASE_URL || GATEWAY_BASE_URLS.aiproxy,
+      }
+    }
+  } catch (error) {
+    console.error('Error fetching user AIProxy config:', error)
+  }
+
+  return fallback
 }

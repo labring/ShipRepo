@@ -344,6 +344,7 @@ export const keys = pgTable(
       enum: ['anthropic', 'openai', 'cursor', 'gemini', 'aigateway', 'aiproxy'],
     }).notNull(),
     value: text('value').notNull(), // Encrypted API key value
+    baseUrl: text('base_url'),
     createdAt: timestamp('created_at').defaultNow().notNull(),
     updatedAt: timestamp('updated_at').defaultNow().notNull(),
   },
@@ -358,6 +359,7 @@ export const insertKeySchema = z.object({
   userId: z.string(),
   provider: z.enum(['anthropic', 'openai', 'cursor', 'gemini', 'aigateway', 'aiproxy']),
   value: z.string().min(1, 'API key value is required'),
+  baseUrl: z.string().url().optional(),
   createdAt: z.date().optional(),
   updatedAt: z.date().optional(),
 })
@@ -367,6 +369,7 @@ export const selectKeySchema = z.object({
   userId: z.string(),
   provider: z.enum(['anthropic', 'openai', 'cursor', 'gemini', 'aigateway', 'aiproxy']),
   value: z.string(),
+  baseUrl: z.string().nullable(),
   createdAt: z.date(),
   updatedAt: z.date(),
 })

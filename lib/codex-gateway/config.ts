@@ -1,7 +1,6 @@
-import { SignJWT } from 'jose'
+import type { DevboxInfo } from '@/lib/devbox/types'
 
 const DEFAULT_CODEX_GATEWAY_PORT = '1317'
-const DEFAULT_CODEX_GATEWAY_JWT_TTL_SECONDS = 60 * 60
 
 export function getCodexGatewayPort(): string {
   return process.env.CODEX_GATEWAY_PORT || DEFAULT_CODEX_GATEWAY_PORT
@@ -12,10 +11,38 @@ export function getCodexGatewayUrlTemplate(): string | null {
   return value || null
 }
 
+function getObjectValue(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key]
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+export function getCodexGatewayUrlFromDevboxInfo(info?: DevboxInfo | null): string | null {
+  const gateway = info?.gateway
+  if (!gateway) {
+    return null
+  }
+
+  const gatewayRecord = gateway as Record<string, unknown>
+
+  return (
+    getObjectValue(gatewayRecord, 'url') ||
+    getObjectValue(gatewayRecord, 'route') ||
+    getObjectValue(gatewayRecord, 'externalURL') ||
+    getObjectValue(gatewayRecord, 'appURL') ||
+    getObjectValue(gatewayRecord, 'accessURL')
+  )
+}
+
 export function resolveCodexGatewayUrl(
   runtimeName: string | null | undefined,
   currentUrl?: string | null,
+  info?: DevboxInfo | null,
 ): string | null {
+  const devboxGatewayUrl = getCodexGatewayUrlFromDevboxInfo(info)
+  if (devboxGatewayUrl) {
+    return devboxGatewayUrl
+  }
+
   const existingUrl = currentUrl?.trim()
   if (existingUrl) {
     return existingUrl
@@ -33,27 +60,23 @@ export function resolveCodexGatewayUrl(
   return template.replaceAll('{name}', runtimeName || '').replaceAll('{port}', getCodexGatewayPort())
 }
 
-export async function getCodexGatewayAuthToken(): Promise<string | null> {
-  const secret = process.env.CODEX_GATEWAY_JWT_SECRET?.trim()
-  if (!secret) {
+export function getCodexGatewayAuthTokenFromDevboxInfo(info?: DevboxInfo | null): string | null {
+  const gateway = info?.gateway
+  if (!gateway) {
     return null
   }
 
-  const ttlSeconds = parseInt(
-    process.env.CODEX_GATEWAY_JWT_TTL_SECONDS || String(DEFAULT_CODEX_GATEWAY_JWT_TTL_SECONDS),
-    10,
+  const gatewayRecord = gateway as Record<string, unknown>
+
+  return (
+    getObjectValue(gatewayRecord, 'accessToken') ||
+    getObjectValue(gatewayRecord, 'authToken') ||
+    getObjectValue(gatewayRecord, 'bearerToken') ||
+    getObjectValue(gatewayRecord, 'token') ||
+    getObjectValue(gatewayRecord, 'jwt')
   )
+}
 
-  if (!Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
-    throw new Error('CODEX_GATEWAY_JWT_TTL_SECONDS must be a positive integer')
-  }
-
-  const now = Math.floor(Date.now() / 1000)
-  const signingKey = new TextEncoder().encode(secret)
-
-  return await new SignJWT({})
-    .setProtectedHeader({ alg: 'HS256' })
-    .setIssuedAt(now)
-    .setExpirationTime(now + ttlSeconds)
-    .sign(signingKey)
+export async function getCodexGatewayAuthToken(info?: DevboxInfo | null): Promise<string | null> {
+  return getCodexGatewayAuthTokenFromDevboxInfo(info)
 }

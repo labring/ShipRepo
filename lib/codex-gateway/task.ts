@@ -2,6 +2,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
 import { getCodexGatewayAuthToken, resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
+import { DevboxApiError, getDevbox } from '@/lib/devbox/client'
 
 export async function getTaskById(taskId: string) {
   const [task] = await db
@@ -30,8 +31,21 @@ export async function getTaskGatewayContext(taskId: string, userId: string) {
     return { task: null, gatewayUrl: null, gatewayAuthToken: null }
   }
 
-  const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl)
-  const gatewayAuthToken = await getCodexGatewayAuthToken()
+  let gatewayInfo = null
+
+  if (task.runtimeName) {
+    try {
+      const response = await getDevbox(task.runtimeName)
+      gatewayInfo = response.data
+    } catch (error) {
+      if (!(error instanceof DevboxApiError)) {
+        throw error
+      }
+    }
+  }
+
+  const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, gatewayInfo)
+  const gatewayAuthToken = await getCodexGatewayAuthToken(gatewayInfo)
 
   return {
     task,
@@ -47,8 +61,21 @@ export async function getTaskGatewayContextById(taskId: string) {
     return { task: null, gatewayUrl: null, gatewayAuthToken: null }
   }
 
-  const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl)
-  const gatewayAuthToken = await getCodexGatewayAuthToken()
+  let gatewayInfo = null
+
+  if (task.runtimeName) {
+    try {
+      const response = await getDevbox(task.runtimeName)
+      gatewayInfo = response.data
+    } catch (error) {
+      if (!(error instanceof DevboxApiError)) {
+        throw error
+      }
+    }
+  }
+
+  const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, gatewayInfo)
+  const gatewayAuthToken = await getCodexGatewayAuthToken(gatewayInfo)
 
   return {
     task,
@@ -70,16 +97,4 @@ export function normalizeCodexGatewayModel(model: string | null | undefined): st
 
   const segments = trimmedModel.split('/').filter(Boolean)
   return segments.at(-1) || trimmedModel
-}
-
-export function shouldUseCodexGatewayTask(task: {
-  gatewayUrl?: string | null
-  runtimeName?: string | null
-  selectedAgent?: string | null
-}): boolean {
-  if (task.selectedAgent !== 'codex') {
-    return false
-  }
-
-  return Boolean(resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl))
 }

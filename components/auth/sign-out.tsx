@@ -142,7 +142,7 @@ export function SignOut({ user, authProvider }: Pick<Session, 'user' | 'authProv
 
         <DropdownMenuItem onClick={() => setShowSandboxesDialog(true)} className="cursor-pointer">
           <Server className="h-4 w-4 mr-2" />
-          Sandboxes
+          Environments
         </DropdownMenuItem>
 
         {/* Only show GitHub Connect/Disconnect for Vercel users when GitHub is enabled */}

@@ -18,8 +18,16 @@ export class CodexGatewayApiError extends Error {
   }
 }
 
+const CODEX_GATEWAY_STARTUP_TIMEOUT_MS = 15_000
+const CODEX_GATEWAY_STARTUP_RETRY_MS = 1_000
+
 function buildUrl(baseUrl: string, path: string): string {
-  return new URL(path, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString()
+  const url = new URL(baseUrl)
+  const basePath = url.pathname.replace(/\/+$/, '')
+  const relativePath = path.replace(/^\/+/, '')
+
+  url.pathname = `${basePath}/${relativePath}`
+  return url.toString()
 }
 
 async function parseResponse(response: Response): Promise<unknown> {
@@ -35,6 +43,7 @@ async function parseResponse(response: Response): Promise<unknown> {
 
 async function request<T>(baseUrl: string, path: string, init?: RequestInit, authToken?: string | null): Promise<T> {
   const headers = new Headers(init?.headers)
+  const requestUrl = buildUrl(baseUrl, path)
 
   if (!headers.has('content-type') && init?.body) {
     headers.set('content-type', 'application/json')
@@ -44,7 +53,7 @@ async function request<T>(baseUrl: string, path: string, init?: RequestInit, aut
     headers.set('authorization', `Bearer ${authToken}`)
   }
 
-  const response = await fetch(buildUrl(baseUrl, path), {
+  const response = await fetch(requestUrl, {
     ...init,
     headers,
     cache: 'no-store',
@@ -78,6 +87,49 @@ export async function getCodexGatewayHealth(baseUrl: string): Promise<CodexGatew
 
 export async function getCodexGatewayReady(baseUrl: string): Promise<CodexGatewayReady> {
   return await request<CodexGatewayReady>(baseUrl, '/readyz')
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export async function waitForCodexGatewayReady(baseUrl: string): Promise<CodexGatewayReady> {
+  const deadline = Date.now() + CODEX_GATEWAY_STARTUP_TIMEOUT_MS
+  let lastError: unknown = null
+
+  while (Date.now() < deadline) {
+    try {
+      const health = await getCodexGatewayHealth(baseUrl)
+      if (!health.ok) {
+        lastError = new Error('Codex gateway health check returned not ok')
+        await sleep(CODEX_GATEWAY_STARTUP_RETRY_MS)
+        continue
+      }
+    } catch (error) {
+      lastError = error
+      await sleep(CODEX_GATEWAY_STARTUP_RETRY_MS)
+      continue
+    }
+
+    try {
+      const ready = await getCodexGatewayReady(baseUrl)
+      if (ready.ok) {
+        return ready
+      }
+
+      lastError = new Error('Codex gateway readiness check returned not ok')
+    } catch (error) {
+      lastError = error
+    }
+
+    await sleep(CODEX_GATEWAY_STARTUP_RETRY_MS)
+  }
+
+  if (lastError instanceof Error) {
+    throw lastError
+  }
+
+  throw new Error('Codex gateway startup check timed out')
 }
 
 export async function createCodexGatewaySession(
