@@ -3,12 +3,13 @@ import { db } from '@/lib/db/client'
 import { Task, tasks } from '@/lib/db/schema'
 import { getUserApiKeys, resolveCodexGatewayFromApiKeys, type GatewayConfig } from '@/lib/api-keys/user-keys'
 import { resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
-import { createDevbox, DevboxApiError, getDevbox, listDevboxes } from '@/lib/devbox/client'
+import { createDevbox, DevboxApiError, execDevbox, getDevbox, listDevboxes } from '@/lib/devbox/client'
 import { getDevboxArchiveAfterPauseTime, getDevboxDefaultImage, getDevboxNamespace } from '@/lib/devbox/config'
 import { createTaskDevboxName } from '@/lib/devbox/naming'
 import type { DevboxInfo, DevboxSshInfo } from '@/lib/devbox/types'
 import { getUserGitHubToken } from '@/lib/github/user-token'
 import type { TaskLogger } from '@/lib/utils/task-logger'
+import { createAuthenticatedRepoUrl } from '@/lib/sandbox/config'
 
 export interface TaskRuntimeSummary {
   provider: 'devbox'
@@ -32,6 +33,18 @@ interface EnsureTaskDevboxRuntimeOptions {
   githubToken?: string | null
   gatewayConfig?: GatewayConfig | null
   logger?: TaskLogger
+}
+
+const DEVBOX_WORKSPACE_DIR = '/home/devbox/workspace'
+const DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS = 60_000
+const DEVBOX_BOOTSTRAP_READY_POLL_MS = 2_000
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
 function getPauseAt(maxDurationMinutes: number | null): string {
@@ -87,17 +100,102 @@ async function clearMissingTaskRuntime(taskId: string) {
     .where(eq(tasks.id, taskId))
 }
 
+async function ensureTaskRepoBootstrapped(
+  task: Task,
+  runtimeName: string,
+  githubToken: string | null,
+  logger?: TaskLogger,
+) {
+  if (!task.repoUrl) {
+    return
+  }
+
+  const authenticatedRepoUrl = createAuthenticatedRepoUrl(task.repoUrl, githubToken)
+  const branchName = task.branchName?.trim() || ''
+
+  const bootstrapScript = [
+    'set -e',
+    `cd ${shellEscape(DEVBOX_WORKSPACE_DIR)}`,
+    'if [ -d .git ]; then',
+    '  exit 0',
+    'fi',
+    'tmpdir="$(mktemp -d)"',
+    'cleanup() { rm -rf "$tmpdir"; }',
+    'trap cleanup EXIT',
+    branchName
+      ? `git clone --depth 1 --branch ${shellEscape(branchName)} ${shellEscape(authenticatedRepoUrl)} "$tmpdir/repo"`
+      : `git clone --depth 1 ${shellEscape(authenticatedRepoUrl)} "$tmpdir/repo"`,
+    'cp -a "$tmpdir/repo"/. .',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  await logger?.info('Bootstrapping Devbox repository')
+
+  const startedAt = Date.now()
+  let lastPendingError = false
+
+  while (true) {
+    try {
+      const runtime = await getDevbox(runtimeName)
+      if (runtime.data.state.phase !== 'Running') {
+        lastPendingError = true
+        if (Date.now() - startedAt >= DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS) {
+          break
+        }
+        await sleep(DEVBOX_BOOTSTRAP_READY_POLL_MS)
+        continue
+      }
+
+      const execResponse = await execDevbox(runtimeName, {
+        command: ['sh', '-lc', bootstrapScript],
+        timeoutSeconds: 120,
+      })
+
+      if (execResponse.data.exitCode !== 0) {
+        console.error('Devbox repository bootstrap failed:', execResponse.data.stderr || execResponse.data.stdout)
+        throw new Error('Failed to bootstrap Devbox repository')
+      }
+
+      await logger?.success('Devbox repository bootstrapped')
+      return
+    } catch (error) {
+      if (
+        error instanceof DevboxApiError &&
+        error.status === 409 &&
+        error.message.includes('devbox pod is not running')
+      ) {
+        lastPendingError = true
+        if (Date.now() - startedAt >= DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS) {
+          break
+        }
+        await sleep(DEVBOX_BOOTSTRAP_READY_POLL_MS)
+        continue
+      }
+
+      throw error
+    }
+  }
+
+  if (lastPendingError) {
+    throw new Error('Timed out waiting for Devbox repository bootstrap')
+  }
+}
+
 export async function ensureTaskDevboxRuntime(
   task: Task,
   options: EnsureTaskDevboxRuntimeOptions = {},
 ): Promise<TaskRuntimeSummary> {
   const logger = options.logger
+  const githubToken = options.githubToken ?? (await getUserGitHubToken())
 
   if (task.runtimeName) {
     try {
       const existingRuntime = await getDevbox(task.runtimeName)
       const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
       const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, existingRuntime.data)
+
+      await ensureTaskRepoBootstrapped(task, task.runtimeName, githubToken, logger)
 
       await db
         .update(tasks)
@@ -137,6 +235,8 @@ export async function ensureTaskDevboxRuntime(
     const runtimeNamespace = getDevboxNamespace()
     const gatewayUrl = resolveCodexGatewayUrl(existingDevbox.name, task.gatewayUrl)
 
+    await ensureTaskRepoBootstrapped(task, existingDevbox.name, githubToken, logger)
+
     await db
       .update(tasks)
       .set({
@@ -167,7 +267,6 @@ export async function ensureTaskDevboxRuntime(
     return runtimeSummary
   }
 
-  const githubToken = options.githubToken ?? (await getUserGitHubToken())
   const gatewayConfig =
     options.gatewayConfig === undefined ? resolveCodexGatewayFromApiKeys(await getUserApiKeys()) : options.gatewayConfig
 
@@ -216,6 +315,8 @@ export async function ensureTaskDevboxRuntime(
 
   const infoResponse = await getDevbox(runtimeName)
   const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl, infoResponse.data)
+
+  await ensureTaskRepoBootstrapped(task, runtimeName, githubToken, logger)
 
   await db
     .update(tasks)

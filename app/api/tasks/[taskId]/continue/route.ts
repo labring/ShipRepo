@@ -3,6 +3,7 @@ import { and, eq, isNull } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
 import { startCodexGatewayTaskTurn, waitForCodexGatewayTurnCompletion } from '@/lib/codex-gateway/runner'
+import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 import { getServerSession } from '@/lib/session/get-server-session'
@@ -50,6 +51,9 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
       return NextResponse.json({ error: 'Unsupported agent' }, { status: 400 })
     }
 
+    const logger = createTaskLogger(taskId)
+    await ensureTaskDevboxRuntime(task, { logger })
+
     const startedTurn = await startCodexGatewayTaskTurn(taskId, message.trim(), {
       appendUserMessage: true,
       model: task.selectedModel,
@@ -70,7 +74,6 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
           })
           .where(eq(tasks.id, taskId))
 
-        const logger = createTaskLogger(taskId)
         await logger.error('Failed to finalize Codex gateway follow-up')
       }
     })
