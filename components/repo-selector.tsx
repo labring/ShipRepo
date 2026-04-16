@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import Image from 'next/image'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Lock, Loader2, Layers } from 'lucide-react'
@@ -502,11 +501,9 @@ export function RepoSelector({
           ) : size === 'sm' && selectedOwnerData ? (
             // Mobile: Show only avatar
             <div className="flex items-center gap-1">
-              <Image
+              <img
                 src={selectedOwnerData.avatar_url}
                 alt={selectedOwnerData.login}
-                width={20}
-                height={20}
                 className="w-5 h-5 rounded-full sm:hidden"
               />
               <span className="hidden sm:inline">
@@ -530,13 +527,7 @@ export function RepoSelector({
             displayedOwners.map((owner) => (
               <SelectItem key={owner.login} value={owner.login}>
                 <div className="flex items-center gap-2">
-                  <Image
-                    src={owner.avatar_url}
-                    alt={owner.login}
-                    width={16}
-                    height={16}
-                    className="w-4 h-4 rounded-full"
-                  />
+                  <img src={owner.avatar_url} alt={owner.login} className="w-4 h-4 rounded-full" />
                   <span>{owner.login}</span>
                 </div>
               </SelectItem>

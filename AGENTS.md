@@ -106,11 +106,12 @@ nodemon
 ```
 
 #### What to Do Instead:
-1. **Testing changes**: Use `pnpm build` to verify the production build works
-2. **Type checking**: Use `pnpm type-check` to verify types
-3. **Linting**: Use `pnpm lint` to check code quality
+1. **Type checking**: Use `pnpm type-check` to verify types
+2. **Linting**: Use `pnpm lint` to check code quality
+3. **Formatting**: Use `pnpm format` when editing TypeScript/TSX files
 4. **Running tests**: Use `pnpm test` if tests are available
-5. **If the user needs to test**: Let the user run the dev server themselves
+5. **Production build**: Do not run `pnpm build` by default. Only run it if the user explicitly asks for it or the task specifically requires a production build verification
+6. **If the user needs to test**: Let the user run the dev server themselves
 
 #### Exception:
 If the user explicitly asks you to start a dev server, politely explain why you cannot do this and suggest they run it themselves instead.
@@ -258,7 +259,7 @@ Before submitting changes, verify:
 - [ ] Ran `pnpm format:check` to verify formatting
 - [ ] Ran `pnpm type-check` and all type errors are fixed
 - [ ] Ran `pnpm lint` and all linting errors are fixed
-- [ ] Ran `pnpm build` to verify production build succeeds
+- [ ] Ran `pnpm build` only when the user requested it or the task required production build verification
 
 ## Questions?
 
