@@ -7,6 +7,7 @@ import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 import { getServerSession } from '@/lib/session/get-server-session'
+import { appendTaskMessage } from '@/lib/task-messages'
 
 export async function POST(req: NextRequest, context: { params: Promise<{ taskId: string }> }) {
   try {
@@ -37,6 +38,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
     }
 
+    const trimmedMessage = message.trim()
+
     const [task] = await db
       .select()
       .from(tasks)
@@ -51,19 +54,44 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
       return NextResponse.json({ error: 'Unsupported agent' }, { status: 400 })
     }
 
-    const logger = createTaskLogger(taskId)
-    await ensureTaskDevboxRuntime(task, { logger })
+    let userMessagePersisted = false
 
-    const startedTurn = await startCodexGatewayTaskTurn(taskId, message.trim(), {
-      appendUserMessage: true,
-      model: task.selectedModel,
-    })
+    try {
+      await appendTaskMessage({
+        taskId,
+        role: 'user',
+        content: trimmedMessage,
+      })
+      userMessagePersisted = true
+    } catch {
+      console.error('Failed to persist follow-up user message')
+    }
+
+    await db
+      .update(tasks)
+      .set({
+        status: 'processing',
+        progress: 0,
+        error: null,
+        completedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, taskId))
 
     after(async () => {
+      const logger = createTaskLogger(taskId)
+
       try {
+        await ensureTaskDevboxRuntime(task, { logger })
+
+        const startedTurn = await startCodexGatewayTaskTurn(taskId, trimmedMessage, {
+          appendUserMessage: !userMessagePersisted,
+          model: task.selectedModel,
+        })
+
         await waitForCodexGatewayTurnCompletion(startedTurn)
-      } catch (error) {
-        console.error('Failed to finalize Codex gateway follow-up:', error)
+      } catch {
+        console.error('Failed to finalize Codex gateway follow-up')
 
         await db
           .update(tasks)
@@ -79,8 +107,8 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
     })
 
     return NextResponse.json({ success: true })
-  } catch (error) {
-    console.error('Error continuing task:', error)
+  } catch {
+    console.error('Error continuing task')
     return NextResponse.json({ error: 'Failed to continue task' }, { status: 500 })
   }
 }

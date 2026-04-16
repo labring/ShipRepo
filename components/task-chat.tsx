@@ -71,6 +71,16 @@ interface GatewaySessionRouteResponse {
   error?: string
 }
 
+function createOptimisticUserMessage(taskId: string, content: string): TaskMessage {
+  return {
+    id: `optimistic-user-${Date.now()}`,
+    taskId,
+    role: 'user',
+    content,
+    createdAt: new Date(),
+  }
+}
+
 export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
   const [messages, setMessages] = useState<TaskMessage[]>([])
   const [gatewayState, setGatewayState] = useState<CodexGatewayState | null>(null)
@@ -145,8 +155,8 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
         } else {
           setError(data.error || 'Failed to fetch messages')
         }
-      } catch (err) {
-        console.error('Error fetching messages:', err)
+      } catch {
+        console.error('Error fetching messages')
         setError('Failed to fetch messages')
       } finally {
         if (showLoading) {
@@ -181,8 +191,8 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
       setGatewaySessionId(sessionData.sessionId)
       setGatewayState(sessionData.state)
       return true
-    } catch (err) {
-      console.error('Error fetching gateway session:', err)
+    } catch {
+      console.error('Error fetching gateway session')
       return false
     }
   }, [isGatewayTask, taskId])
@@ -209,8 +219,8 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
         } else {
           setCommentsError(data.error || 'Failed to fetch comments')
         }
-      } catch (err) {
-        console.error('Error fetching PR comments:', err)
+      } catch {
+        console.error('Error fetching PR comments')
         setCommentsError('Failed to fetch comments')
       } finally {
         if (showLoading) {
@@ -243,8 +253,8 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
         } else {
           setActionsError(data.error || 'Failed to fetch check runs')
         }
-      } catch (err) {
-        console.error('Error fetching check runs:', err)
+      } catch {
+        console.error('Error fetching check runs')
         setActionsError('Failed to fetch check runs')
       } finally {
         if (showLoading) {
@@ -275,8 +285,8 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
         } else {
           setDeploymentError(data.error || 'Failed to fetch deployment')
         }
-      } catch (err) {
-        console.error('Error fetching deployment:', err)
+      } catch {
+        console.error('Error fetching deployment')
         setDeploymentError('Failed to fetch deployment')
       } finally {
         if (showLoading) {
@@ -343,7 +353,11 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
   }, [isGatewayTask, task.status])
 
   useEffect(() => {
-    if (!isGatewayTask || gatewaySessionId || !(task.status === 'processing' || task.status === 'pending')) {
+    if (
+      !isGatewayTask ||
+      gatewaySessionId ||
+      (!(task.status === 'processing' || task.status === 'pending') && !gatewayTurnPending)
+    ) {
       return
     }
 
@@ -368,7 +382,7 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
     return () => {
       cancelled = true
     }
-  }, [gatewaySessionId, isGatewayTask, refreshGatewaySession, task.status])
+  }, [gatewaySessionId, gatewayTurnPending, isGatewayTask, refreshGatewaySession, task.status])
 
   useEffect(() => {
     const shouldConnect =
@@ -622,9 +636,11 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
 
     setIsSending(true)
     const messageToSend = newMessage.trim()
+    const optimisticMessage = createOptimisticUserMessage(taskId, messageToSend)
 
     // Clear the message immediately (optimistic)
     setNewMessage('')
+    setMessages((prev) => [...prev, optimisticMessage])
 
     try {
       const response = await fetch(`/api/tasks/${taskId}/continue`, {
@@ -641,16 +657,17 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
 
       if (response.ok) {
         setGatewayTurnPending(isGatewayTask)
-        // Refresh messages to show the new user message without loading state
-        await Promise.all([fetchMessages(false), refreshGatewaySession()])
+        void fetchMessages(false)
       } else {
         toast.error(data.error || 'Failed to send message')
+        setMessages((prev) => prev.filter((message) => message.id !== optimisticMessage.id))
         setNewMessage(messageToSend) // Restore the message on error
         setGatewayTurnPending(false)
       }
-    } catch (err) {
-      console.error('Error sending message:', err)
+    } catch {
+      console.error('Error sending message')
       toast.error('Failed to send message')
+      setMessages((prev) => prev.filter((message) => message.id !== optimisticMessage.id))
       setNewMessage(messageToSend) // Restore the message on error
       setGatewayTurnPending(false)
     } finally {
@@ -670,8 +687,8 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
       await navigator.clipboard.writeText(content)
       setCopiedMessageId(messageId)
       setTimeout(() => setCopiedMessageId(null), 2000)
-    } catch (err) {
-      console.error('Failed to copy message:', err)
+    } catch {
+      console.error('Failed to copy message')
       toast.error('Failed to copy message')
     }
   }
@@ -680,6 +697,8 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
     if (isSending) return
 
     setIsSending(true)
+    const optimisticMessage = createOptimisticUserMessage(taskId, content)
+    setMessages((prev) => [...prev, optimisticMessage])
 
     try {
       const response = await fetch(`/api/tasks/${taskId}/continue`, {
@@ -696,15 +715,16 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
 
       if (response.ok) {
         setGatewayTurnPending(isGatewayTask)
-        // Refresh messages to show the new user message without loading state
-        await Promise.all([fetchMessages(false), refreshGatewaySession()])
+        void fetchMessages(false)
       } else {
         toast.error(data.error || 'Failed to resend message')
+        setMessages((prev) => prev.filter((message) => message.id !== optimisticMessage.id))
         setGatewayTurnPending(false)
       }
-    } catch (err) {
-      console.error('Error resending message:', err)
+    } catch {
+      console.error('Error resending message')
       toast.error('Failed to resend message')
+      setMessages((prev) => prev.filter((message) => message.id !== optimisticMessage.id))
       setGatewayTurnPending(false)
     } finally {
       setIsSending(false)
@@ -735,8 +755,8 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
         const error = await response.json()
         toast.error(error.error || 'Failed to stop task')
       }
-    } catch (error) {
-      console.error('Error stopping task:', error)
+    } catch {
+      console.error('Error stopping task')
       toast.error('Failed to stop task')
     } finally {
       setIsStopping(false)
@@ -762,9 +782,18 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
       return null
     }
 
+    const latestUserEntry = [...gatewayState.transcript]
+      .reverse()
+      .find((entry) => entry.role === 'user' && entry.text.trim())
+
     const latestAssistantEntry = [...gatewayState.transcript]
       .reverse()
-      .find((entry) => entry.role === 'assistant' && entry.text.trim())
+      .find(
+        (entry) =>
+          entry.role === 'assistant' &&
+          entry.text.trim() &&
+          (!latestUserEntry || entry.createdAt >= latestUserEntry.createdAt),
+      )
 
     if (!latestAssistantEntry) {
       return null

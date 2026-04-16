@@ -35,10 +35,6 @@ interface EnsureTaskDevboxRuntimeOptions {
   logger?: TaskLogger
 }
 
-const DEVBOX_HOME_DIR = '/home/devbox'
-const DEVBOX_WORKSPACE_DIR = '/home/devbox/workspace'
-const DEVBOX_AGENT_SKILL_MARKER = '/home/devbox/.agents/skills/sealos-deploy/SKILL.md'
-const DEVBOX_CODEX_SKILL_MARKER = '/home/devbox/.codex/skills/sealos-deploy/SKILL.md'
 const DEVBOX_SEAKILLS_INSTALL_COMMAND = 'npx --yes skills add labring/seakills /codex/remove-duplicate-flow-doc -g -y'
 const DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS = 60_000
 const DEVBOX_BOOTSTRAP_READY_POLL_MS = 2_000
@@ -112,11 +108,27 @@ async function ensureTaskWorkspaceBootstrapped(
 ) {
   const authenticatedRepoUrl = task.repoUrl ? createAuthenticatedRepoUrl(task.repoUrl, githubToken) : null
   const branchName = task.branchName?.trim() || ''
-  const bootstrapScript = ['set -e']
+  const bootstrapScript = [
+    'set -e',
+    'home_dir="${HOME:-/root}"',
+    'workspace_dir=""',
+    'if [ -d "$home_dir/workspace" ]; then',
+    '  workspace_dir="$home_dir/workspace"',
+    'elif [ -d /workspace ]; then',
+    '  workspace_dir="/workspace"',
+    'elif [ -d /app ] && [ -f /app/package.json ]; then',
+    '  workspace_dir="/app"',
+    'elif [ -d "$home_dir/.git" ] || [ -f "$home_dir/package.json" ] || [ -d "$home_dir/src" ]; then',
+    '  workspace_dir="$home_dir"',
+    'else',
+    '  workspace_dir="$PWD"',
+    'fi',
+    'mkdir -p "$workspace_dir"',
+  ]
 
   if (authenticatedRepoUrl) {
     bootstrapScript.push(
-      `cd ${shellEscape(DEVBOX_WORKSPACE_DIR)}`,
+      'cd "$workspace_dir"',
       'if [ ! -d .git ]; then',
       '  tmpdir="$(mktemp -d)"',
       '  cleanup() { rm -rf "$tmpdir"; }',
@@ -130,9 +142,17 @@ async function ensureTaskWorkspaceBootstrapped(
   }
 
   bootstrapScript.push(
-    `if [ ! -f ${shellEscape(DEVBOX_AGENT_SKILL_MARKER)} ] && [ ! -f ${shellEscape(DEVBOX_CODEX_SKILL_MARKER)} ]; then`,
-    `  cd ${shellEscape(DEVBOX_HOME_DIR)}`,
+    'agent_skill_marker="$home_dir/.agents/skills/sealos-deploy/SKILL.md"',
+    'codex_skill_marker="$home_dir/.codex/skills/sealos-deploy/SKILL.md"',
+    'if [ ! -f "$agent_skill_marker" ] && [ ! -f "$codex_skill_marker" ]; then',
+    '  cd "$home_dir"',
     `  ${DEVBOX_SEAKILLS_INSTALL_COMMAND}`,
+    'fi',
+    'if [ "$workspace_dir" != "$home_dir" ] && [ -d "$home_dir/.agents" ] && [ ! -e "$workspace_dir/.agents" ]; then',
+    '  ln -s "$home_dir/.agents" "$workspace_dir/.agents"',
+    'fi',
+    'if [ "$workspace_dir" != "$home_dir" ] && [ -d "$home_dir/.codex" ] && [ ! -e "$workspace_dir/.codex" ]; then',
+    '  ln -s "$home_dir/.codex" "$workspace_dir/.codex"',
     'fi',
   )
 
