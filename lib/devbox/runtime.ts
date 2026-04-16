@@ -35,7 +35,11 @@ interface EnsureTaskDevboxRuntimeOptions {
   logger?: TaskLogger
 }
 
+const DEVBOX_HOME_DIR = '/home/devbox'
 const DEVBOX_WORKSPACE_DIR = '/home/devbox/workspace'
+const DEVBOX_AGENT_SKILL_MARKER = '/home/devbox/.agents/skills/sealos-deploy/SKILL.md'
+const DEVBOX_CODEX_SKILL_MARKER = '/home/devbox/.codex/skills/sealos-deploy/SKILL.md'
+const DEVBOX_SEAKILLS_INSTALL_COMMAND = 'npx --yes skills add labring/seakills /codex/remove-duplicate-flow-doc -g -y'
 const DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS = 60_000
 const DEVBOX_BOOTSTRAP_READY_POLL_MS = 2_000
 
@@ -100,37 +104,39 @@ async function clearMissingTaskRuntime(taskId: string) {
     .where(eq(tasks.id, taskId))
 }
 
-async function ensureTaskRepoBootstrapped(
+async function ensureTaskWorkspaceBootstrapped(
   task: Task,
   runtimeName: string,
   githubToken: string | null,
   logger?: TaskLogger,
 ) {
-  if (!task.repoUrl) {
-    return
+  const authenticatedRepoUrl = task.repoUrl ? createAuthenticatedRepoUrl(task.repoUrl, githubToken) : null
+  const branchName = task.branchName?.trim() || ''
+  const bootstrapScript = ['set -e']
+
+  if (authenticatedRepoUrl) {
+    bootstrapScript.push(
+      `cd ${shellEscape(DEVBOX_WORKSPACE_DIR)}`,
+      'if [ ! -d .git ]; then',
+      '  tmpdir="$(mktemp -d)"',
+      '  cleanup() { rm -rf "$tmpdir"; }',
+      '  trap cleanup EXIT',
+      branchName
+        ? `  git clone --depth 1 --branch ${shellEscape(branchName)} ${shellEscape(authenticatedRepoUrl)} "$tmpdir/repo"`
+        : `  git clone --depth 1 ${shellEscape(authenticatedRepoUrl)} "$tmpdir/repo"`,
+      '  cp -a "$tmpdir/repo"/. .',
+      'fi',
+    )
   }
 
-  const authenticatedRepoUrl = createAuthenticatedRepoUrl(task.repoUrl, githubToken)
-  const branchName = task.branchName?.trim() || ''
-
-  const bootstrapScript = [
-    'set -e',
-    `cd ${shellEscape(DEVBOX_WORKSPACE_DIR)}`,
-    'if [ -d .git ]; then',
-    '  exit 0',
+  bootstrapScript.push(
+    `if [ ! -f ${shellEscape(DEVBOX_AGENT_SKILL_MARKER)} ] && [ ! -f ${shellEscape(DEVBOX_CODEX_SKILL_MARKER)} ]; then`,
+    `  cd ${shellEscape(DEVBOX_HOME_DIR)}`,
+    `  ${DEVBOX_SEAKILLS_INSTALL_COMMAND}`,
     'fi',
-    'tmpdir="$(mktemp -d)"',
-    'cleanup() { rm -rf "$tmpdir"; }',
-    'trap cleanup EXIT',
-    branchName
-      ? `git clone --depth 1 --branch ${shellEscape(branchName)} ${shellEscape(authenticatedRepoUrl)} "$tmpdir/repo"`
-      : `git clone --depth 1 ${shellEscape(authenticatedRepoUrl)} "$tmpdir/repo"`,
-    'cp -a "$tmpdir/repo"/. .',
-  ]
-    .filter(Boolean)
-    .join('\n')
+  )
 
-  await logger?.info('Bootstrapping Devbox repository')
+  await logger?.info('Bootstrapping Devbox workspace')
 
   const startedAt = Date.now()
   let lastPendingError = false
@@ -148,16 +154,16 @@ async function ensureTaskRepoBootstrapped(
       }
 
       const execResponse = await execDevbox(runtimeName, {
-        command: ['sh', '-lc', bootstrapScript],
-        timeoutSeconds: 120,
+        command: ['sh', '-lc', bootstrapScript.join('\n')],
+        timeoutSeconds: 300,
       })
 
       if (execResponse.data.exitCode !== 0) {
-        console.error('Devbox repository bootstrap failed:', execResponse.data.stderr || execResponse.data.stdout)
-        throw new Error('Failed to bootstrap Devbox repository')
+        console.error('Devbox workspace bootstrap failed')
+        throw new Error('Failed to bootstrap Devbox workspace')
       }
 
-      await logger?.success('Devbox repository bootstrapped')
+      await logger?.success('Devbox workspace bootstrapped')
       return
     } catch (error) {
       if (
@@ -178,7 +184,7 @@ async function ensureTaskRepoBootstrapped(
   }
 
   if (lastPendingError) {
-    throw new Error('Timed out waiting for Devbox repository bootstrap')
+    throw new Error('Timed out waiting for Devbox workspace bootstrap')
   }
 }
 
@@ -195,7 +201,7 @@ export async function ensureTaskDevboxRuntime(
       const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
       const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, existingRuntime.data)
 
-      await ensureTaskRepoBootstrapped(task, task.runtimeName, githubToken, logger)
+      await ensureTaskWorkspaceBootstrapped(task, task.runtimeName, githubToken, logger)
 
       await db
         .update(tasks)
@@ -216,7 +222,7 @@ export async function ensureTaskDevboxRuntime(
         existingRuntime.data,
       )
 
-      console.info('Devbox runtime info:', runtimeSummary)
+      console.info('Devbox runtime info available')
 
       return runtimeSummary
     } catch (error) {
@@ -235,7 +241,7 @@ export async function ensureTaskDevboxRuntime(
     const runtimeNamespace = getDevboxNamespace()
     const gatewayUrl = resolveCodexGatewayUrl(existingDevbox.name, task.gatewayUrl)
 
-    await ensureTaskRepoBootstrapped(task, existingDevbox.name, githubToken, logger)
+    await ensureTaskWorkspaceBootstrapped(task, existingDevbox.name, githubToken, logger)
 
     await db
       .update(tasks)
@@ -262,7 +268,7 @@ export async function ensureTaskDevboxRuntime(
       ssh: null,
     }
 
-    console.info('Devbox runtime info:', runtimeSummary)
+    console.info('Devbox runtime info available')
 
     return runtimeSummary
   }
@@ -316,7 +322,7 @@ export async function ensureTaskDevboxRuntime(
   const infoResponse = await getDevbox(runtimeName)
   const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl, infoResponse.data)
 
-  await ensureTaskRepoBootstrapped(task, runtimeName, githubToken, logger)
+  await ensureTaskWorkspaceBootstrapped(task, runtimeName, githubToken, logger)
 
   await db
     .update(tasks)
@@ -339,7 +345,7 @@ export async function ensureTaskDevboxRuntime(
     infoResponse.data,
   )
 
-  console.info('Devbox runtime info:', runtimeSummary)
+  console.info('Devbox runtime info available')
 
   return runtimeSummary
 }
