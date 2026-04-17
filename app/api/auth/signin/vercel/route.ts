@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
+import { getAppBaseUrl } from '@/lib/auth/oauth'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { CodeChallengeMethod, OAuth2Client, generateCodeVerifier, generateState } from 'arctic'
 
@@ -7,7 +8,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const client = new OAuth2Client(
     process.env.NEXT_PUBLIC_VERCEL_CLIENT_ID ?? '',
     process.env.VERCEL_CLIENT_SECRET ?? '',
-    `${req.nextUrl.origin}/api/auth/callback/vercel`,
+    `${getAppBaseUrl(req)}/api/auth/callback/vercel`,
   )
 
   const state = generateState()

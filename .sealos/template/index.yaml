@@ -37,11 +37,16 @@ spec:
       type: string
       default: ''
       required: true
-    NEXT_PUBLIC_GITHUB_CLIENT_ID:
+    GITHUB_CLIENT_ID:
       description: 'GitHub OAuth client ID'
       type: string
       default: ''
       required: true
+    APP_BASE_URL:
+      description: 'Public app URL used for OAuth callbacks'
+      type: string
+      default: ''
+      required: false
     GITHUB_CLIENT_SECRET:
       description: 'GitHub OAuth client secret'
       type: string
@@ -301,8 +306,10 @@ spec:
               value: ${{ inputs.ENCRYPTION_KEY }}
             - name: NEXT_PUBLIC_AUTH_PROVIDERS
               value: github
-            - name: NEXT_PUBLIC_GITHUB_CLIENT_ID
-              value: ${{ inputs.NEXT_PUBLIC_GITHUB_CLIENT_ID }}
+            - name: APP_BASE_URL
+              value: ${{ inputs.APP_BASE_URL }}
+            - name: GITHUB_CLIENT_ID
+              value: ${{ inputs.GITHUB_CLIENT_ID }}
             - name: GITHUB_CLIENT_SECRET
               value: ${{ inputs.GITHUB_CLIENT_SECRET }}
             - name: NEXT_PUBLIC_VERCEL_CLIENT_ID

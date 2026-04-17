@@ -1,4 +1,5 @@
 import type { NextRequest } from 'next/server'
+import { getGitHubClientId } from '@/lib/auth/oauth'
 import { getSessionFromReq } from '@/lib/session/server'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { saveSession } from '@/lib/session/create'
@@ -12,11 +13,12 @@ export async function GET(req: NextRequest) {
       // Revoke GitHub token - fetch from database
       try {
         const tokenData = await getOAuthToken(session.user.id, 'github')
-        if (tokenData) {
-          await fetch(`https://api.github.com/applications/${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}/token`, {
+        const clientId = getGitHubClientId()
+        if (tokenData && clientId && process.env.GITHUB_CLIENT_SECRET) {
+          await fetch(`https://api.github.com/applications/${clientId}/token`, {
             method: 'DELETE',
             headers: {
-              Authorization: `Basic ${Buffer.from(`${process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID}:${process.env.GITHUB_CLIENT_SECRET}`).toString('base64')}`,
+              Authorization: `Basic ${Buffer.from(`${clientId}:${process.env.GITHUB_CLIENT_SECRET}`).toString('base64')}`,
               Accept: 'application/vnd.github.v3+json',
             },
             body: JSON.stringify({ access_token: tokenData.accessToken }),

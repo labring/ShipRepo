@@ -231,8 +231,9 @@ NEXT_PUBLIC_AUTH_PROVIDERS=github,vercel
 - `VERCEL_CLIENT_SECRET`: Your Vercel OAuth app client secret
 
 **Option 2: Sign in with GitHub** (if `github` is in `NEXT_PUBLIC_AUTH_PROVIDERS`)
-- `NEXT_PUBLIC_GITHUB_CLIENT_ID`: Your GitHub OAuth app client ID (exposed to client)
+- `GITHUB_CLIENT_ID`: Your GitHub OAuth app client ID
 - `GITHUB_CLIENT_SECRET`: Your GitHub OAuth app client secret
+- `APP_BASE_URL`: Optional explicit public app URL for OAuth callbacks in self-hosted deployments
 
 > **Note**: Only the providers listed in `NEXT_PUBLIC_AUTH_PROVIDERS` will appear in the sign-in dialog. You must provide the OAuth credentials for each enabled provider.
 
@@ -278,7 +279,7 @@ Based on your `NEXT_PUBLIC_AUTH_PROVIDERS` configuration, you'll need to create 
    - **Homepage URL**: `http://localhost:3000` (or your production URL)
    - **Authorization callback URL**: `http://localhost:3000/api/auth/github/callback`
 4. Click "Register application"
-5. Copy the **Client ID** → use for `NEXT_PUBLIC_GITHUB_CLIENT_ID`
+5. Copy the **Client ID** → use for `GITHUB_CLIENT_ID`
 6. Click "Generate a new client secret" → copy and use for `GITHUB_CLIENT_SECRET`
 
 **Required Scopes**: The app will request `repo` scope to access repositories.
@@ -411,7 +412,7 @@ This release introduces **user authentication** and **major security improvement
      - `NEXT_PUBLIC_AUTH_PROVIDERS`: Configure which auth providers to enable (`github`, `vercel`, or both)
    
    - **New OAuth Configuration (at least one required):**
-     - GitHub: `NEXT_PUBLIC_GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+     - GitHub: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
      - Vercel: `NEXT_PUBLIC_VERCEL_CLIENT_ID`, `VERCEL_CLIENT_SECRET`
    
    - **Changed Authentication:**
@@ -448,8 +449,11 @@ ENCRYPTION_KEY=$(openssl rand -hex 32)
 NEXT_PUBLIC_AUTH_PROVIDERS=github  # or "vercel" or "github,vercel"
 
 # GitHub OAuth (if using GitHub authentication)
-NEXT_PUBLIC_GITHUB_CLIENT_ID=your_github_client_id
+GITHUB_CLIENT_ID=your_github_client_id
 GITHUB_CLIENT_SECRET=your_github_client_secret
+
+# Optional explicit public URL for OAuth callbacks in self-hosted deployments
+APP_BASE_URL=http://localhost:3000
 
 # Vercel OAuth (if using Vercel authentication)
 NEXT_PUBLIC_VERCEL_CLIENT_ID=your_vercel_client_id
@@ -554,4 +558,3 @@ Confirm that:
 - **Users must connect GitHub** (if they signed in with Vercel) to access repositories
 - **API keys** can now be per-user - users can override global API keys in their profile
 - **Breaking API changes**: If you have external integrations calling your API, they'll need to be updated to include authentication
-

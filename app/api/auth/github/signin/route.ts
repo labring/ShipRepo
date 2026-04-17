@@ -1,6 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { getSessionFromReq } from '@/lib/session/server'
+import { getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { generateState } from 'arctic'
 
@@ -8,14 +9,14 @@ export async function GET(req: NextRequest): Promise<Response> {
   // Check if user is authenticated with Vercel first
   const session = await getSessionFromReq(req)
   if (!session?.user) {
-    return Response.redirect(new URL('/', req.url))
+    return Response.redirect(new URL('/', getAppBaseUrl(req)))
   }
 
-  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID
-  const redirectUri = `${req.nextUrl.origin}/api/auth/github/callback`
+  const clientId = getGitHubClientId()
+  const redirectUri = `${getAppBaseUrl(req)}/api/auth/github/callback`
 
   if (!clientId) {
-    return Response.redirect(new URL('/?error=github_not_configured', req.url))
+    return Response.redirect(new URL('/?error=github_not_configured', getAppBaseUrl(req)))
   }
 
   const state = generateState()
@@ -60,8 +61,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: 'Not authenticated' }, { status: 401 })
   }
 
-  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID
-  const redirectUri = `${req.nextUrl.origin}/api/auth/github/callback`
+  const clientId = getGitHubClientId()
+  const redirectUri = `${getAppBaseUrl(req)}/api/auth/github/callback`
 
   if (!clientId) {
     return Response.json({ error: 'GitHub OAuth not configured' }, { status: 500 })

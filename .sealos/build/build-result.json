@@ -2,12 +2,12 @@
   "outcome": "success",
   "registry": "ghcr",
   "build": {
-    "image_name": "sealos-deploy",
-    "started_at": "2026-04-17T06:09:39.296Z"
+    "image_name": "sealos-deploy-demo",
+    "started_at": "2026-04-17T09:49:51.107Z"
   },
   "push": {
-    "remote_image": "ghcr.io/zjy365/sealos-deploy:20260417-140939",
-    "pushed_at": "2026-04-17T06:10:12.558Z"
+    "remote_image": "ghcr.io/zjy365/sealos-deploy-demo:20260417-174951",
+    "pushed_at": "2026-04-17T09:50:21.082Z"
   },
-  "finished_at": "2026-04-17T06:10:12.558Z"
+  "finished_at": "2026-04-17T09:50:21.082Z"
 }

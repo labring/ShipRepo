@@ -4,6 +4,7 @@ import { db } from '@/lib/db/client'
 import { users, accounts, tasks, connectors, keys } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
+import { getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
 import { createGitHubSession, saveSession } from '@/lib/session/create-github'
 import { encrypt } from '@/lib/crypto'
 
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     }
   }
 
-  const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID
+  const clientId = getGitHubClientId()
   const clientSecret = process.env.GITHUB_CLIENT_SECRET
 
   if (!clientId || !clientSecret) {
@@ -221,7 +222,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       cookieStore.delete(`github_oauth_user_id`)
 
       // Redirect back to app
-      return Response.redirect(new URL(storedRedirectTo, req.nextUrl.origin))
+      return Response.redirect(new URL(storedRedirectTo, `${getAppBaseUrl(req)}/`))
     }
   } catch (error) {
     console.error('[GitHub Callback] OAuth callback error:', error)

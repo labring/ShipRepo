@@ -209,12 +209,7 @@ export function HomePageContent({
   }
 
   const handleReconfigureGitHub = () => {
-    const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID
-    if (clientId) {
-      window.open(`https://github.com/settings/connections/applications/${clientId}`, '_blank')
-    } else {
-      window.location.href = '/api/auth/github/signin'
-    }
+    window.open('https://github.com/settings/connections/applications', '_blank')
   }
 
   const handleOpenRepoUrl = async (repoUrl: string) => {

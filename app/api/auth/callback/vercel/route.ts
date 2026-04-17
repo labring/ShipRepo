@@ -1,5 +1,6 @@
 import { type NextRequest } from 'next/server'
 import { OAuth2Client, type OAuth2Tokens } from 'arctic'
+import { getAppBaseUrl } from '@/lib/auth/oauth'
 import { createSession, saveSession } from '@/lib/session/create'
 import { cookies } from 'next/headers'
 
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const client = new OAuth2Client(
     process.env.NEXT_PUBLIC_VERCEL_CLIENT_ID ?? '',
     process.env.VERCEL_CLIENT_SECRET ?? '',
-    `${req.nextUrl.origin}/api/auth/callback/vercel`,
+    `${getAppBaseUrl(req)}/api/auth/callback/vercel`,
   )
 
   let tokens: OAuth2Tokens
