@@ -35,7 +35,8 @@ interface EnsureTaskDevboxRuntimeOptions {
   logger?: TaskLogger
 }
 
-const DEVBOX_SEAKILLS_INSTALL_COMMAND = 'npx --yes skills add labring/seakills /codex/remove-duplicate-flow-doc -y'
+const DEVBOX_SEAKILLS_INSTALL_COMMAND =
+  'npx --yes skills add https://github.com/zjy365/seakills/tree/sandbox-skill-lite -y'
 const DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS = 60_000
 const DEVBOX_BOOTSTRAP_READY_POLL_MS = 2_000
 const DEVBOX_SKILL_INSTALL_MARKER = '__CODEX_SKILL_INSTALLED__:1'
