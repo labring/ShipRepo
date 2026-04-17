@@ -1,0 +1,13 @@
+{
+  "outcome": "success",
+  "registry": "ghcr",
+  "build": {
+    "image_name": "sealos-deploy-demo",
+    "started_at": "2026-04-17T01:55:17.000Z"
+  },
+  "push": {
+    "remote_image": "ghcr.io/zjy365/sealos-deploy-demo:20260417-095517",
+    "pushed_at": "2026-04-17T01:56:16.000Z"
+  },
+  "finished_at": "2026-04-17T01:56:16.000Z"
+}

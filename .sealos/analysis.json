@@ -1,0 +1,119 @@
+{
+  "generated_at": "2026-04-16T12:47:00.000Z",
+  "project": {
+    "github_url": "https://github.com/zjy365/sealos-deploy.git",
+    "work_dir": "/Users/jingyang/work/sealos-deploy-demo",
+    "repo_name": "sealos-deploy-demo",
+    "branch": "main"
+  },
+  "score": {
+    "total": 5,
+    "verdict": "Fair",
+    "dimensions": {
+      "statelessness": 2,
+      "config": 2,
+      "scalability": 0,
+      "startup": 1,
+      "observability": 0,
+      "boundaries": 0
+    }
+  },
+  "language": "node",
+  "all_languages": [
+    "node"
+  ],
+  "framework": "nextjs",
+  "package_manager": "pnpm",
+  "port": 3000,
+  "databases": [
+    "postgres"
+  ],
+  "runtime_version": {
+    "node": "22",
+    "source": "default"
+  },
+  "env_vars": {
+    "POSTGRES_URL": {
+      "category": "auto",
+      "description": "Application PostgreSQL connection string"
+    },
+    "JWE_SECRET": {
+      "category": "auto",
+      "description": "Session encryption secret"
+    },
+    "ENCRYPTION_KEY": {
+      "category": "auto",
+      "description": "Hex key for encrypting stored credentials"
+    },
+    "NEXT_PUBLIC_AUTH_PROVIDERS": {
+      "category": "optional",
+      "description": "Enabled OAuth providers",
+      "default": "github"
+    },
+    "NEXT_PUBLIC_GITHUB_CLIENT_ID": {
+      "category": "required",
+      "description": "GitHub OAuth client ID"
+    },
+    "GITHUB_CLIENT_SECRET": {
+      "category": "required",
+      "description": "GitHub OAuth client secret"
+    },
+    "NEXT_PUBLIC_VERCEL_CLIENT_ID": {
+      "category": "optional",
+      "description": "Vercel OAuth client ID"
+    },
+    "VERCEL_CLIENT_SECRET": {
+      "category": "optional",
+      "description": "Vercel OAuth client secret"
+    },
+    "SANDBOX_VERCEL_TEAM_ID": {
+      "category": "required",
+      "description": "Vercel Sandbox team ID"
+    },
+    "SANDBOX_VERCEL_PROJECT_ID": {
+      "category": "required",
+      "description": "Vercel Sandbox project ID"
+    },
+    "SANDBOX_VERCEL_TOKEN": {
+      "category": "required",
+      "description": "Vercel Sandbox API token"
+    },
+    "AI_GATEWAY_API_KEY": {
+      "category": "optional",
+      "description": "Global AI Gateway fallback key"
+    },
+    "ANTHROPIC_API_KEY": {
+      "category": "optional",
+      "description": "Global Anthropic fallback key"
+    },
+    "CURSOR_API_KEY": {
+      "category": "optional",
+      "description": "Global Cursor fallback key"
+    },
+    "GEMINI_API_KEY": {
+      "category": "optional",
+      "description": "Global Gemini fallback key"
+    },
+    "OPENAI_API_KEY": {
+      "category": "optional",
+      "description": "Global OpenAI fallback key"
+    },
+    "MAX_SANDBOX_DURATION": {
+      "category": "optional",
+      "description": "Default sandbox duration in minutes",
+      "default": "300"
+    },
+    "MAX_MESSAGES_PER_DAY": {
+      "category": "optional",
+      "description": "Per-user daily task limit",
+      "default": "5"
+    },
+    "NPM_TOKEN": {
+      "category": "optional",
+      "description": "Registry token for private npm packages"
+    }
+  },
+  "has_dockerfile": false,
+  "complexity_tier": "L2",
+  "image_ref": "ghcr.io/zjy365/sealos-deploy-demo:20260417-095517"
+}

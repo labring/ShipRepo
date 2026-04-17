@@ -1,0 +1,433 @@
+apiVersion: app.sealos.io/v1
+kind: Template
+metadata:
+  name: sealos-deploy-demo
+spec:
+  title: 'Coding Agent Template'
+  url: 'https://github.com/zjy365/sealos-deploy'
+  gitRepo: 'https://github.com/zjy365/sealos-deploy'
+  author: 'jingyang'
+  description: 'Deploy a full-stack Next.js coding agent with GitHub auth, Vercel Sandbox integration, and PostgreSQL-backed task state.'
+  readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/sealos-deploy-demo/README.md'
+  icon: 'https://raw.githubusercontent.com/zjy365/sealos-deploy/main/app/favicon.ico'
+  templateType: inline
+  locale: en
+  i18n:
+    zh:
+      description: '部署一个带 GitHub 登录、Vercel Sandbox 集成和 PostgreSQL 持久化任务状态的全栈 Next.js 编码代理应用。'
+      readme: 'https://raw.githubusercontent.com/labring-actions/templates/kb-0.9/template/sealos-deploy-demo/README_zh.md'
+  categories:
+    - ai
+    - dev-ops
+  defaults:
+    app_name:
+      type: string
+      value: sealos-deploy-demo-${{ random(8) }}
+    app_host:
+      type: string
+      value: sealos-deploy-demo-${{ random(8) }}
+  inputs:
+    JWE_SECRET:
+      description: 'Base64url-encoded 32-byte secret for session encryption'
+      type: string
+      default: ''
+      required: true
+    ENCRYPTION_KEY:
+      description: '64-character hex key for encrypting stored credentials'
+      type: string
+      default: ''
+      required: true
+    NEXT_PUBLIC_GITHUB_CLIENT_ID:
+      description: 'GitHub OAuth client ID'
+      type: string
+      default: ''
+      required: true
+    GITHUB_CLIENT_SECRET:
+      description: 'GitHub OAuth client secret'
+      type: string
+      default: ''
+      required: true
+    SANDBOX_VERCEL_TEAM_ID:
+      description: 'Vercel Sandbox team ID'
+      type: string
+      default: ''
+      required: false
+    SANDBOX_VERCEL_PROJECT_ID:
+      description: 'Vercel Sandbox project ID'
+      type: string
+      default: ''
+      required: false
+    SANDBOX_VERCEL_TOKEN:
+      description: 'Vercel Sandbox API token'
+      type: string
+      default: ''
+      required: false
+    NEXT_PUBLIC_VERCEL_CLIENT_ID:
+      description: 'Vercel OAuth client ID'
+      type: string
+      default: ''
+      required: false
+    VERCEL_CLIENT_SECRET:
+      description: 'Vercel OAuth client secret'
+      type: string
+      default: ''
+      required: false
+    AI_GATEWAY_API_KEY:
+      description: 'Global AI Gateway fallback key'
+      type: string
+      default: ''
+      required: false
+    ANTHROPIC_API_KEY:
+      description: 'Global Anthropic fallback key'
+      type: string
+      default: ''
+      required: false
+    CURSOR_API_KEY:
+      description: 'Global Cursor fallback key'
+      type: string
+      default: ''
+      required: false
+    GEMINI_API_KEY:
+      description: 'Global Gemini fallback key'
+      type: string
+      default: ''
+      required: false
+    OPENAI_API_KEY:
+      description: 'Global OpenAI fallback key'
+      type: string
+      default: ''
+      required: false
+    MAX_SANDBOX_DURATION:
+      description: 'Default sandbox duration in minutes'
+      type: string
+      default: '300'
+      required: false
+    MAX_MESSAGES_PER_DAY:
+      description: 'Per-user daily task limit'
+      type: string
+      default: '5'
+      required: false
+    NPM_TOKEN:
+      description: 'Registry token for private npm packages'
+      type: string
+      default: ''
+      required: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+rules:
+  - apiGroups:
+      - '*'
+    resources:
+      - '*'
+    verbs:
+      - '*'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    sealos-db-provider-cr: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/instance: ${{ defaults.app_name }}-pg
+    app.kubernetes.io/managed-by: kbcli
+  name: ${{ defaults.app_name }}-pg
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{ defaults.app_name }}-pg
+subjects:
+  - kind: ServiceAccount
+    name: ${{ defaults.app_name }}-pg
+---
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  labels:
+    kb.io/database: postgresql-16.4.0
+    clusterdefinition.kubeblocks.io/name: postgresql
+    clusterversion.kubeblocks.io/name: postgresql-16.4.0
+  name: ${{ defaults.app_name }}-pg
+spec:
+  affinity:
+    podAntiAffinity: Preferred
+    tenancy: SharedNode
+  clusterDefinitionRef: postgresql
+  clusterVersionRef: postgresql-16.4.0
+  componentSpecs:
+    - componentDefRef: postgresql
+      disableExporter: true
+      enabledLogs:
+        - running
+      name: postgresql
+      replicas: 1
+      resources:
+        limits:
+          cpu: 500m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 51Mi
+      serviceAccountName: ${{ defaults.app_name }}-pg
+      switchPolicy:
+        type: Noop
+      volumeClaimTemplates:
+        - name: data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 1Gi
+            storageClassName: openebs-backup
+  terminationPolicy: Delete
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${{ defaults.app_name }}-pg-init
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: ${{ defaults.app_name }}-pg-init
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: PG_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: endpoint
+            - name: PG_DATABASE
+              value: coding_agent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              for i in $(seq 1 60); do
+                if pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1; then
+                  break
+                fi
+                sleep 2
+              done
+              pg_isready -h "${PG_ENDPOINT%:*}" -p "${PG_ENDPOINT##*:}" -U postgres -d postgres >/dev/null 2>&1
+              if ! psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -tAc "SELECT 1 FROM pg_database WHERE datname='${PG_DATABASE}'" | grep -q 1; then
+                psql "postgresql://postgres:${PG_PASSWORD}@${PG_ENDPOINT}/postgres" -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${PG_DATABASE}\";"
+              fi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${{ defaults.app_name }}
+  annotations:
+    originImageName: ghcr.io/zjy365/sealos-deploy-demo:20260417-095517
+    deploy.cloud.sealos.io/minReplicas: '1'
+    deploy.cloud.sealos.io/maxReplicas: '1'
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: ${{ defaults.app_name }}
+  template:
+    metadata:
+      labels:
+        app: ${{ defaults.app_name }}
+        cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ${{ defaults.app_name }}
+      containers:
+        - name: ${{ defaults.app_name }}
+          image: ghcr.io/zjy365/sealos-deploy-demo:20260417-095517
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: PG_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: host
+            - name: PG_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: port
+            - name: PG_USER
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: username
+            - name: PG_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ${{ defaults.app_name }}-pg-conn-credential
+                  key: password
+            - name: POSTGRES_URL
+              value: postgresql://$(PG_USER):$(PG_PASSWORD)@$(PG_HOST):$(PG_PORT)/coding_agent
+            - name: JWE_SECRET
+              value: ${{ inputs.JWE_SECRET }}
+            - name: ENCRYPTION_KEY
+              value: ${{ inputs.ENCRYPTION_KEY }}
+            - name: NEXT_PUBLIC_AUTH_PROVIDERS
+              value: github
+            - name: NEXT_PUBLIC_GITHUB_CLIENT_ID
+              value: ${{ inputs.NEXT_PUBLIC_GITHUB_CLIENT_ID }}
+            - name: GITHUB_CLIENT_SECRET
+              value: ${{ inputs.GITHUB_CLIENT_SECRET }}
+            - name: NEXT_PUBLIC_VERCEL_CLIENT_ID
+              value: ${{ inputs.NEXT_PUBLIC_VERCEL_CLIENT_ID }}
+            - name: VERCEL_CLIENT_SECRET
+              value: ${{ inputs.VERCEL_CLIENT_SECRET }}
+            - name: SANDBOX_VERCEL_TEAM_ID
+              value: ${{ inputs.SANDBOX_VERCEL_TEAM_ID }}
+            - name: SANDBOX_VERCEL_PROJECT_ID
+              value: ${{ inputs.SANDBOX_VERCEL_PROJECT_ID }}
+            - name: SANDBOX_VERCEL_TOKEN
+              value: ${{ inputs.SANDBOX_VERCEL_TOKEN }}
+            - name: AI_GATEWAY_API_KEY
+              value: ${{ inputs.AI_GATEWAY_API_KEY }}
+            - name: ANTHROPIC_API_KEY
+              value: ${{ inputs.ANTHROPIC_API_KEY }}
+            - name: CURSOR_API_KEY
+              value: ${{ inputs.CURSOR_API_KEY }}
+            - name: GEMINI_API_KEY
+              value: ${{ inputs.GEMINI_API_KEY }}
+            - name: OPENAI_API_KEY
+              value: ${{ inputs.OPENAI_API_KEY }}
+            - name: MAX_SANDBOX_DURATION
+              value: ${{ inputs.MAX_SANDBOX_DURATION }}
+            - name: MAX_MESSAGES_PER_DAY
+              value: ${{ inputs.MAX_MESSAGES_PER_DAY }}
+            - name: NPM_TOKEN
+              value: ${{ inputs.NPM_TOKEN }}
+            - name: NODE_ENV
+              value: production
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 20m
+              memory: 25Mi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  selector:
+    app: ${{ defaults.app_name }}
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    app: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+    cloud.sealos.io/app-deploy-manager-domain: ${{ defaults.app_host }}
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/proxy-body-size: 32m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      client_header_buffer_size 64k;
+      large_client_header_buffers 4 128k;
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/backend-protocol: HTTP
+    nginx.ingress.kubernetes.io/client-body-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-buffer-size: 64k
+    nginx.ingress.kubernetes.io/proxy-send-timeout: '300'
+    nginx.ingress.kubernetes.io/proxy-read-timeout: '300'
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      if ($request_uri ~* \.(js|css|gif|jpe?g|png)) {
+        expires 30d;
+        add_header Cache-Control "public";
+      }
+spec:
+  rules:
+    - host: ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ${{ defaults.app_name }}
+                port:
+                  number: 3000
+  tls:
+    - hosts:
+        - ${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+      secretName: ${{ SEALOS_CERT_SECRET_NAME }}
+---
+apiVersion: app.sealos.io/v1
+kind: App
+metadata:
+  name: ${{ defaults.app_name }}
+  labels:
+    cloud.sealos.io/app-deploy-manager: ${{ defaults.app_name }}
+spec:
+  data:
+    url: https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}
+  displayType: normal
+  icon: https://raw.githubusercontent.com/zjy365/sealos-deploy/main/app/favicon.ico
+  name: Coding Agent Template
+  type: link

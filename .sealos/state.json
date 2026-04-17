@@ -1,0 +1,25 @@
+{
+  "version": "1.0",
+  "last_deploy": {
+    "app_name": "sealos-deploy-demo-08dfa6e1",
+    "app_host": "sealos-deploy-demo-08dfa6e1",
+    "namespace": "ns-qiqovyrm",
+    "region": "sealosgzg.site",
+    "image": "ghcr.io/zjy365/sealos-deploy-demo:20260417-095517",
+    "docker_hub_user": null,
+    "repo_name": "sealos-deploy-demo",
+    "url": "https://sealos-deploy-demo-08dfa6e1.sealosgzg.site",
+    "deployed_at": "2026-04-17T02:12:37Z",
+    "last_updated_at": "2026-04-17T02:12:37Z"
+  },
+  "history": [
+    {
+      "at": "2026-04-17T02:12:37Z",
+      "action": "deploy",
+      "image": "ghcr.io/zjy365/sealos-deploy-demo:20260417-095517",
+      "method": "template-api",
+      "status": "success",
+      "note": "Initial deployment with empty sandbox credentials by user request"
+    }
+  ]
+}
