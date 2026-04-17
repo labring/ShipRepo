@@ -102,7 +102,6 @@ export async function POST(request: NextRequest) {
       try {
         // Check if AI Gateway API key is available
         if (!process.env.AI_GATEWAY_API_KEY) {
-          console.log('AI_GATEWAY_API_KEY not available, skipping AI branch name generation')
           return
         }
 
@@ -166,7 +165,6 @@ export async function POST(request: NextRequest) {
       try {
         // Check if AI Gateway API key is available
         if (!process.env.AI_GATEWAY_API_KEY) {
-          console.log('AI_GATEWAY_API_KEY not available, skipping AI title generation')
           return
         }
 

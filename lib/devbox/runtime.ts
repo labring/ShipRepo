@@ -35,9 +35,10 @@ interface EnsureTaskDevboxRuntimeOptions {
   logger?: TaskLogger
 }
 
-const DEVBOX_SEAKILLS_INSTALL_COMMAND = 'npx --yes skills add labring/seakills /codex/remove-duplicate-flow-doc -g -y'
+const DEVBOX_SEAKILLS_INSTALL_COMMAND = 'npx --yes skills add labring/seakills /codex/remove-duplicate-flow-doc -y'
 const DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS = 60_000
 const DEVBOX_BOOTSTRAP_READY_POLL_MS = 2_000
+const DEVBOX_SKILL_INSTALL_MARKER = '__CODEX_SKILL_INSTALLED__:1'
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -105,13 +106,14 @@ async function ensureTaskWorkspaceBootstrapped(
   runtimeName: string,
   githubToken: string | null,
   logger?: TaskLogger,
-) {
+): Promise<{ installedSkill: boolean }> {
   const authenticatedRepoUrl = task.repoUrl ? createAuthenticatedRepoUrl(task.repoUrl, githubToken) : null
   const branchName = task.branchName?.trim() || ''
   const bootstrapScript = [
     'set -e',
     'home_dir="${HOME:-/root}"',
     'workspace_dir=""',
+    'installed_codex_skill=0',
     'if [ -d "$home_dir/workspace" ]; then',
     '  workspace_dir="$home_dir/workspace"',
     'elif [ -d /workspace ]; then',
@@ -142,18 +144,14 @@ async function ensureTaskWorkspaceBootstrapped(
   }
 
   bootstrapScript.push(
-    'agent_skill_marker="$home_dir/.agents/skills/sealos-deploy/SKILL.md"',
-    'codex_skill_marker="$home_dir/.codex/skills/sealos-deploy/SKILL.md"',
+    'agent_skill_marker="$workspace_dir/.agents/skills/sealos-deploy/SKILL.md"',
+    'codex_skill_marker="$workspace_dir/.codex/skills/sealos-deploy/SKILL.md"',
     'if [ ! -f "$agent_skill_marker" ] && [ ! -f "$codex_skill_marker" ]; then',
-    '  cd "$home_dir"',
+    '  cd "$workspace_dir"',
     `  ${DEVBOX_SEAKILLS_INSTALL_COMMAND}`,
+    '  installed_codex_skill=1',
     'fi',
-    'if [ "$workspace_dir" != "$home_dir" ] && [ -d "$home_dir/.agents" ] && [ ! -e "$workspace_dir/.agents" ]; then',
-    '  ln -s "$home_dir/.agents" "$workspace_dir/.agents"',
-    'fi',
-    'if [ "$workspace_dir" != "$home_dir" ] && [ -d "$home_dir/.codex" ] && [ ! -e "$workspace_dir/.codex" ]; then',
-    '  ln -s "$home_dir/.codex" "$workspace_dir/.codex"',
-    'fi',
+    'printf \'%s\\n\' "__CODEX_SKILL_INSTALLED__:$installed_codex_skill"',
   )
 
   await logger?.info('Bootstrapping Devbox workspace')
@@ -184,7 +182,9 @@ async function ensureTaskWorkspaceBootstrapped(
       }
 
       await logger?.success('Devbox workspace bootstrapped')
-      return
+      return {
+        installedSkill: execResponse.data.stdout.includes(DEVBOX_SKILL_INSTALL_MARKER),
+      }
     } catch (error) {
       if (
         error instanceof DevboxApiError &&
@@ -206,6 +206,8 @@ async function ensureTaskWorkspaceBootstrapped(
   if (lastPendingError) {
     throw new Error('Timed out waiting for Devbox workspace bootstrap')
   }
+
+  throw new Error('Devbox workspace bootstrap did not complete')
 }
 
 export async function ensureTaskDevboxRuntime(
@@ -221,7 +223,7 @@ export async function ensureTaskDevboxRuntime(
       const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
       const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, existingRuntime.data)
 
-      await ensureTaskWorkspaceBootstrapped(task, task.runtimeName, githubToken, logger)
+      const bootstrapResult = await ensureTaskWorkspaceBootstrapped(task, task.runtimeName, githubToken, logger)
 
       await db
         .update(tasks)
@@ -261,7 +263,7 @@ export async function ensureTaskDevboxRuntime(
     const runtimeNamespace = getDevboxNamespace()
     const gatewayUrl = resolveCodexGatewayUrl(existingDevbox.name, task.gatewayUrl)
 
-    await ensureTaskWorkspaceBootstrapped(task, existingDevbox.name, githubToken, logger)
+    const bootstrapResult = await ensureTaskWorkspaceBootstrapped(task, existingDevbox.name, githubToken, logger)
 
     await db
       .update(tasks)
@@ -342,7 +344,7 @@ export async function ensureTaskDevboxRuntime(
   const infoResponse = await getDevbox(runtimeName)
   const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl, infoResponse.data)
 
-  await ensureTaskWorkspaceBootstrapped(task, runtimeName, githubToken, logger)
+  const bootstrapResult = await ensureTaskWorkspaceBootstrapped(task, runtimeName, githubToken, logger)
 
   await db
     .update(tasks)
