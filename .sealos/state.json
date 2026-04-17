@@ -5,12 +5,12 @@
     "app_host": "sealos-deploy-demo-08dfa6e1",
     "namespace": "ns-qiqovyrm",
     "region": "sealosgzg.site",
-    "image": "ghcr.io/zjy365/sealos-deploy-demo:20260417-095517",
+    "image": "ghcr.io/zjy365/sealos-deploy:20260417-140939",
     "docker_hub_user": null,
-    "repo_name": "sealos-deploy-demo",
+    "repo_name": "sealos-deploy",
     "url": "https://sealos-deploy-demo-08dfa6e1.sealosgzg.site",
     "deployed_at": "2026-04-17T02:12:37Z",
-    "last_updated_at": "2026-04-17T02:12:37Z"
+    "last_updated_at": "2026-04-17T06:14:12Z"
   },
   "history": [
     {
@@ -20,6 +20,42 @@
       "method": "template-api",
       "status": "success",
       "note": "Initial deployment with empty sandbox credentials by user request"
+    },
+    {
+      "at": "2026-04-17T03:58:35Z",
+      "action": "set-image",
+      "previous_image": "ghcr.io/zjy365/sealos-deploy-demo:20260417-095517",
+      "image": "ghcr.io/zjy365/sealos-deploy:20260417-115558",
+      "method": "kubectl-set-image",
+      "status": "success",
+      "note": "Updated tasks list after removing model display residue"
+    },
+    {
+      "at": "2026-04-17T04:00:26.972Z",
+      "action": "set-image",
+      "previous_image": "ghcr.io/zjy365/sealos-deploy:20260417-115558",
+      "image": "ghcr.io/zjy365/sealos-deploy-demo:20260417-115753",
+      "method": "kubectl-set-image",
+      "status": "success"
+    },
+    {
+      "at": "2026-04-17T06:14:12Z",
+      "action": "set-image",
+      "previous_image": "ghcr.io/zjy365/sealos-deploy-demo:20260417-115753",
+      "image": "ghcr.io/zjy365/sealos-deploy:20260417-140939",
+      "method": "kubectl-set-image",
+      "status": "success",
+      "note": "Aligned deployment image with GitHub repo package name"
+    },
+    {
+      "at": "2026-04-17T06:14:12Z",
+      "action": "patch",
+      "changes": [
+        "nodeSelector.kubernetes.io/hostname=gzg-node-009"
+      ],
+      "method": "kubectl-patch",
+      "status": "success",
+      "note": "Pinned rollout to the working node to avoid image pull stall on gzg-node-006"
     }
   ]
 }
