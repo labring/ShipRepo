@@ -7,7 +7,6 @@ import { AlertCircle, Plus, Trash2, GitBranch, Loader2, Search, X } from 'lucide
 import { cn } from '@/lib/utils'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Claude, Codex, Copilot, Cursor, Gemini, OpenCode } from '@/components/logos'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -290,27 +289,6 @@ export function TaskSidebar({ tasks, width = 288 }: TaskSidebarProps) {
     }
   }
 
-  const getAgentLogo = (agent: string | null) => {
-    if (!agent) return null
-
-    switch (agent.toLowerCase()) {
-      case 'claude':
-        return Claude
-      case 'codex':
-        return Codex
-      case 'copilot':
-        return Copilot
-      case 'cursor':
-        return Cursor
-      case 'gemini':
-        return Gemini
-      case 'opencode':
-        return OpenCode
-      default:
-        return null
-    }
-  }
-
   // Show logged out state if no user is authenticated
   if (!session.user) {
     return (
@@ -510,14 +488,6 @@ export function TaskSidebar({ tasks, width = 288 }: TaskSidebarProps) {
                                     }
                                   })()}
                                 </span>
-                              </div>
-                            )}
-                            {task.selectedAgent && (
-                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                {(() => {
-                                  const AgentLogo = getAgentLogo(task.selectedAgent)
-                                  return AgentLogo ? <AgentLogo className="w-3 h-3" /> : null
-                                })()}
                               </div>
                             )}
                           </div>

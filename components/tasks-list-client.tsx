@@ -23,7 +23,6 @@ import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import type { Session } from '@/lib/session/types'
-import { Claude, Codex, Copilot, Cursor, Gemini, OpenCode } from '@/components/logos'
 import { PRStatusIcon } from '@/components/pr-status-icon'
 import { PRCheckStatus } from '@/components/pr-check-status'
 
@@ -182,27 +181,6 @@ export function TasksListClient({ user, authProvider, initialStars = 1200 }: Tas
     }
   }
 
-  const getAgentLogo = (agent: string | null) => {
-    if (!agent) return null
-
-    switch (agent.toLowerCase()) {
-      case 'claude':
-        return Claude
-      case 'codex':
-        return Codex
-      case 'copilot':
-        return Copilot
-      case 'cursor':
-        return Cursor
-      case 'gemini':
-        return Gemini
-      case 'opencode':
-        return OpenCode
-      default:
-        return null
-    }
-  }
-
   const selectedProcessingTasks = Array.from(selectedTasks).filter((taskId) => {
     const task = tasks.find((t) => t.id === taskId)
     return task?.status === 'processing'
@@ -357,15 +335,6 @@ export function TasksListClient({ user, authProvider, initialStars = 1200 }: Tas
                           </div>
                         )}
                         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          {task.selectedAgent && (
-                            <div className="flex items-center gap-1">
-                              {(() => {
-                                const AgentLogo = getAgentLogo(task.selectedAgent)
-                                return AgentLogo ? <AgentLogo className="w-3 h-3" /> : null
-                              })()}
-                            </div>
-                          )}
-                          {task.selectedAgent && <span>?</span>}
                           <div className="flex items-center gap-1">
                             <Clock className="h-3 w-3" />
                             <span>{getTimeAgo(task.createdAt)}</span>
