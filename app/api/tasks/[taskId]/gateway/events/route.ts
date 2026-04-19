@@ -3,6 +3,10 @@ import { getCodexGatewayEventStreamUrl } from '@/lib/codex-gateway/client'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 import { getServerSession } from '@/lib/session/get-server-session'
 
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300
+
 interface RouteParams {
   params: Promise<{
     taskId: string
@@ -43,9 +47,10 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     }
 
     const headers = new Headers()
-    headers.set('content-type', 'text/event-stream')
+    headers.set('content-type', 'text/event-stream; charset=utf-8')
     headers.set('cache-control', 'no-cache, no-transform')
     headers.set('connection', 'keep-alive')
+    headers.set('x-accel-buffering', 'no')
 
     return new Response(upstream.body, {
       status: 200,

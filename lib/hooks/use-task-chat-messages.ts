@@ -49,11 +49,17 @@ export function useTaskChatMessages(taskId: string, task: Task) {
   const gatewayEventSourceRef = useRef<EventSource | null>(null)
   const lastTaskUpdateRef = useRef<string | null>(null)
   const persistedMessagesRef = useRef<TaskMessage[]>([])
+  const retainedStreamingContentRef = useRef<string | null>(null)
   const isGatewayTask = task.selectedAgent === 'codex'
 
   useEffect(() => {
     persistedMessagesRef.current = persistedMessages
   }, [persistedMessages])
+
+  useEffect(() => {
+    // Keep the latest streamed content available to SSE callbacks without recreating the connection.
+    retainedStreamingContentRef.current = retainedStreamingMessage?.content?.trim() || null
+  }, [retainedStreamingMessage])
 
   const refreshMessages = useCallback(
     async (showLoading = true): Promise<boolean> => {
@@ -287,7 +293,7 @@ export function useTaskChatMessages(taskId: string, task: Task) {
         gatewayEventSourceRef.current = null
       }
 
-      void syncFinalMessages(retainedStreamingMessage?.content)
+      void syncFinalMessages(retainedStreamingContentRef.current)
     })
 
     source.onerror = () => {
@@ -303,16 +309,7 @@ export function useTaskChatMessages(taskId: string, task: Task) {
         gatewayEventSourceRef.current = null
       }
     }
-  }, [
-    gatewaySessionId,
-    gatewayTurnPending,
-    isGatewayTask,
-    refreshMessages,
-    retainedStreamingMessage?.content,
-    syncFinalMessages,
-    task.status,
-    taskId,
-  ])
+  }, [gatewaySessionId, gatewayTurnPending, isGatewayTask, refreshMessages, syncFinalMessages, task.status, taskId])
 
   const sendMessage = useCallback(
     async (content: string): Promise<ChatActionResult> => {
