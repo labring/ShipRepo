@@ -1,7 +1,9 @@
 import { and, desc, eq } from 'drizzle-orm'
+import { FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import {
   CodexGatewayApiError,
   createCodexGatewaySession,
+  deleteCodexGatewaySession,
   getCodexGatewaySessionState,
   sendCodexGatewayTurn,
   waitForCodexGatewayReady,
@@ -95,6 +97,16 @@ export async function startCodexGatewayTaskTurn(
     throw new Error('Codex gateway URL is not configured')
   }
 
+  if (task.selectedModel !== FORCED_CODEX_MODEL) {
+    await db
+      .update(tasks)
+      .set({
+        selectedModel: FORCED_CODEX_MODEL,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, taskId))
+  }
+
   if (options.appendUserMessage) {
     await db.insert(taskMessages).values({
       id: generateId(12),
@@ -104,7 +116,7 @@ export async function startCodexGatewayTaskTurn(
     })
   }
 
-  const normalizedModel = normalizeCodexGatewayModel(options.model ?? task.selectedModel)
+  const normalizedModel = normalizeCodexGatewayModel(FORCED_CODEX_MODEL)
 
   let gatewaySessionId = task.gatewaySessionId
   let transcriptCursor = 0
@@ -112,7 +124,30 @@ export async function startCodexGatewayTaskTurn(
   if (gatewaySessionId) {
     try {
       const existingState = await getCodexGatewaySessionState(gatewayUrl, gatewaySessionId, gatewayAuthToken)
-      transcriptCursor = existingState.state.transcript.length
+      const existingModel = normalizeCodexGatewayModel(existingState.state.selectedModel)
+
+      if (existingModel && normalizedModel && existingModel !== normalizedModel) {
+        try {
+          await deleteCodexGatewaySession(gatewayUrl, gatewaySessionId, gatewayAuthToken)
+        } catch (error) {
+          if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
+            throw error
+          }
+        }
+
+        gatewaySessionId = null
+
+        await db
+          .update(tasks)
+          .set({
+            gatewaySessionId: null,
+            selectedModel: FORCED_CODEX_MODEL,
+            updatedAt: new Date(),
+          })
+          .where(eq(tasks.id, taskId))
+      } else {
+        transcriptCursor = existingState.state.transcript.length
+      }
     } catch (error) {
       if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
         throw error
@@ -123,6 +158,7 @@ export async function startCodexGatewayTaskTurn(
         .update(tasks)
         .set({
           gatewaySessionId: null,
+          selectedModel: FORCED_CODEX_MODEL,
           updatedAt: new Date(),
         })
         .where(eq(tasks.id, taskId))
@@ -149,6 +185,7 @@ export async function startCodexGatewayTaskTurn(
     .set({
       gatewaySessionId,
       gatewayUrl,
+      selectedModel: FORCED_CODEX_MODEL,
       status: 'processing',
       progress: 0,
       error: null,

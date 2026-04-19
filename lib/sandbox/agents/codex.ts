@@ -1,4 +1,5 @@
 import { Sandbox } from '@vercel/sandbox'
+import { FORCED_CODEX_MODEL, FORCED_CODEX_REASONING_EFFORT } from '@/lib/codex/defaults'
 import { runCommandInSandbox, runInProject, PROJECT_DIR } from '../commands'
 import { AgentExecutionResult } from '../types'
 import { redactSensitiveInfo } from '@/lib/utils/logging'
@@ -30,7 +31,7 @@ export async function executeCodexInSandbox(
   sandbox: Sandbox,
   instruction: string,
   logger: TaskLogger,
-  selectedModel?: string,
+  _selectedModel?: string,
   mcpServers?: Connector[],
   isResumed?: boolean,
   sessionId?: string,
@@ -150,13 +151,14 @@ export async function executeCodexInSandbox(
     }
 
     // Create configuration file based on API key type
-    // Use selectedModel if provided, otherwise fall back to default
-    const modelToUse = selectedModel || 'openai/gpt-4o'
+    // Codex model and reasoning are controlled centrally on the backend.
+    const modelToUse = FORCED_CODEX_MODEL
     let configToml
     if (isAiProxyKey || isVercelKey) {
       // Use Vercel AI Gateway configuration for vck_ keys
       // Based on the curl example, it uses /chat/completions endpoint, not responses
       configToml = `model = "${modelToUse}"
+model_reasoning_effort = "${FORCED_CODEX_REASONING_EFFORT}"
 model_provider = "${gatewayConfig.provider}"
 
 [model_providers.${gatewayConfig.provider}]
@@ -172,6 +174,7 @@ log_requests = true
     } else {
       // Use OpenAI direct for sk_ keys
       configToml = `model = "${modelToUse}"
+model_reasoning_effort = "${FORCED_CODEX_REASONING_EFFORT}"
 model_provider = "openai"
 
 [model_providers.openai]

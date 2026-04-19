@@ -15,6 +15,7 @@ import { createTaskLogger } from '@/lib/utils/task-logger'
 import { generateBranchName, createFallbackBranchName } from '@/lib/utils/branch-name-generator'
 import { generateTaskTitle, createFallbackTitle } from '@/lib/utils/title-generator'
 import { generateCommitMessage, createFallbackCommitMessage } from '@/lib/utils/commit-message-generator'
+import { FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import { decrypt } from '@/lib/crypto'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { getUserGitHubToken } from '@/lib/github/user-token'
@@ -88,12 +89,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unsupported agent' }, { status: 400 })
     }
 
+    const selectedModel = FORCED_CODEX_MODEL
+
     // Insert the task into the database - ensure id is definitely present
     const [newTask] = await db
       .insert(tasks)
       .values({
         ...validatedData,
         id: taskId, // Ensure id is always present
+        selectedModel,
       })
       .returning()
 
@@ -246,7 +250,7 @@ export async function POST(request: NextRequest) {
       try {
         const startedTurn = await startCodexGatewayTaskTurn(taskId, validatedData.prompt, {
           appendUserMessage: !userMessagePersisted,
-          model: validatedData.selectedModel,
+          model: selectedModel,
         })
 
         await waitForCodexGatewayTurnCompletion(startedTurn)

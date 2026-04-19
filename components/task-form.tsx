@@ -40,7 +40,7 @@ interface TaskFormProps {
 }
 
 const FIXED_TASK_AGENT = 'codex'
-const FIXED_TASK_MODEL = 'gpt-5.3-codex'
+const FIXED_TASK_MODEL = 'gpt-5.4'
 
 export function TaskForm({
   onSubmit,

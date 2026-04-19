@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { buildForcedCodexConfigToml, FORCED_CODEX_HOME, FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import { db } from '@/lib/db/client'
 import { Task, tasks } from '@/lib/db/schema'
 import { getUserApiKeys, resolveCodexGatewayFromApiKeys, type GatewayConfig } from '@/lib/api-keys/user-keys'
@@ -110,6 +111,7 @@ async function ensureTaskWorkspaceBootstrapped(
 ): Promise<{ installedSkill: boolean }> {
   const authenticatedRepoUrl = task.repoUrl ? createAuthenticatedRepoUrl(task.repoUrl, githubToken) : null
   const branchName = task.branchName?.trim() || ''
+  const managedCodexConfigToml = buildForcedCodexConfigToml()
   const bootstrapScript = [
     'set -e',
     'home_dir="${HOME:-/root}"',
@@ -127,6 +129,14 @@ async function ensureTaskWorkspaceBootstrapped(
     '  workspace_dir="$PWD"',
     'fi',
     'mkdir -p "$workspace_dir"',
+    `codex_home_dir="\${CODEX_GATEWAY_CODEX_HOME:-${FORCED_CODEX_HOME}}"`,
+    'mkdir -p "$codex_home_dir"',
+    `cat > "$codex_home_dir/config.toml" <<'EOF'
+${managedCodexConfigToml}EOF`,
+    'user_codex_home="$home_dir/.codex"',
+    'mkdir -p "$user_codex_home"',
+    `cat > "$user_codex_home/config.toml" <<'EOF'
+${managedCodexConfigToml}EOF`,
   ]
 
   if (authenticatedRepoUrl) {
@@ -304,6 +314,8 @@ export async function ensureTaskDevboxRuntime(
     TASK_ID: task.id,
     CODEX_GATEWAY_HOST: '0.0.0.0',
     CODEX_GATEWAY_PORT: '1317',
+    CODEX_GATEWAY_MODEL: FORCED_CODEX_MODEL,
+    CODEX_GATEWAY_CODEX_HOME: FORCED_CODEX_HOME,
   }
 
   if (task.repoUrl) {

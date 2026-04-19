@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
+import { FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import {
   CodexGatewayApiError,
   createCodexGatewaySession,
@@ -10,7 +11,7 @@ import {
   getCodexGatewaySessionState,
   waitForCodexGatewayReady,
 } from '@/lib/codex-gateway/client'
-import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
+import { getTaskGatewayContext, normalizeCodexGatewayModel } from '@/lib/codex-gateway/task'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 
@@ -139,14 +140,35 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     if (task.gatewaySessionId && !parsed.data.replace) {
       try {
         const existing = await getCodexGatewaySessionState(gatewayUrl, task.gatewaySessionId, gatewayAuthToken)
+        const existingModel = normalizeCodexGatewayModel(existing.state.selectedModel)
+        const forcedModel = normalizeCodexGatewayModel(FORCED_CODEX_MODEL)
 
-        return NextResponse.json({
-          success: true,
-          data: {
-            gatewayUrl,
-            session: existing,
-          },
-        })
+        if (!forcedModel || existingModel === forcedModel) {
+          return NextResponse.json({
+            success: true,
+            data: {
+              gatewayUrl,
+              session: existing,
+            },
+          })
+        }
+
+        try {
+          await deleteCodexGatewaySession(gatewayUrl, task.gatewaySessionId, gatewayAuthToken)
+        } catch (error) {
+          if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
+            throw error
+          }
+        }
+
+        await db
+          .update(tasks)
+          .set({
+            gatewaySessionId: null,
+            selectedModel: FORCED_CODEX_MODEL,
+            updatedAt: new Date(),
+          })
+          .where(eq(tasks.id, taskId))
       } catch (error) {
         if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
           throw error
@@ -156,6 +178,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           .update(tasks)
           .set({
             gatewaySessionId: null,
+            selectedModel: FORCED_CODEX_MODEL,
             updatedAt: new Date(),
           })
           .where(eq(tasks.id, taskId))
@@ -176,13 +199,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     await waitForCodexGatewayReady(gatewayUrl)
 
     await logger.info('Creating Codex gateway session')
-    const created = await createCodexGatewaySession(gatewayUrl, { model: parsed.data.model }, gatewayAuthToken)
+    const created = await createCodexGatewaySession(gatewayUrl, { model: FORCED_CODEX_MODEL }, gatewayAuthToken)
 
     await db
       .update(tasks)
       .set({
         gatewayUrl,
         gatewaySessionId: created.sessionId,
+        selectedModel: FORCED_CODEX_MODEL,
         status: 'processing',
         progress: 0,
         updatedAt: new Date(),
