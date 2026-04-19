@@ -3,6 +3,29 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Task } from '@/lib/db/schema'
 
+function getTaskSnapshotToken(task: Task): string {
+  const lastLog = task.logs?.at(-1)
+
+  return [
+    task.id,
+    task.updatedAt ? new Date(task.updatedAt).toISOString() : '',
+    task.status,
+    task.progress ?? '',
+    task.error ?? '',
+    task.gatewaySessionId ?? '',
+    task.runtimeState ?? '',
+    task.sandboxUrl ?? '',
+    task.previewUrl ?? '',
+    task.prUrl ?? '',
+    task.prNumber ?? '',
+    task.prStatus ?? '',
+    task.title ?? '',
+    task.logs?.length ?? 0,
+    lastLog?.type ?? '',
+    lastLog?.message ?? '',
+  ].join('|')
+}
+
 export function useTask(taskId: string) {
   const [task, setTask] = useState<Task | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -17,7 +40,15 @@ export function useTask(taskId: string) {
       const response = await fetch(`/api/tasks/${taskId}`)
       if (response.ok) {
         const data = await response.json()
-        setTask(data.task)
+        setTask((previousTask) => {
+          const nextTask = data.task as Task
+
+          if (!previousTask) {
+            return nextTask
+          }
+
+          return getTaskSnapshotToken(previousTask) === getTaskSnapshotToken(nextTask) ? previousTask : nextTask
+        })
         setError(null)
         hasFoundTaskRef.current = true
       } else if (response.status === 404) {
