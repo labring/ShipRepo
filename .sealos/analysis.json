@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-17T06:14:12Z",
+  "generated_at": "2026-04-20T09:59:06Z",
   "project": {
     "github_url": "https://github.com/zjy365/sealos-deploy.git",
     "work_dir": "/Users/jingyang/work/sealos-deploy",
@@ -50,13 +50,26 @@
       "description": "Enabled OAuth providers",
       "default": "github"
     },
-    "NEXT_PUBLIC_GITHUB_CLIENT_ID": {
+    "GITHUB_CLIENT_ID": {
       "category": "required",
       "description": "GitHub OAuth client ID"
+    },
+    "APP_BASE_URL": {
+      "category": "optional",
+      "description": "Public app URL for OAuth callbacks and absolute links",
+      "default": "https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}"
     },
     "GITHUB_CLIENT_SECRET": {
       "category": "required",
       "description": "GitHub OAuth client secret"
+    },
+    "DEVBOX_TOKEN": {
+      "category": "required",
+      "description": "Static DevBox API token for runtime provisioning"
+    },
+    "DEVBOX_GATEWAY_URL_TEMPLATE": {
+      "category": "required",
+      "description": "Codex gateway URL template used to reach each runtime gateway"
     },
     "NEXT_PUBLIC_VERCEL_CLIENT_ID": {
       "category": "optional",

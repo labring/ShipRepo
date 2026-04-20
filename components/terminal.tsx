@@ -310,7 +310,7 @@ export const Terminal = forwardRef<TerminalRef, TerminalProps>(function Terminal
       <div ref={terminalRef} className="flex-1 overflow-y-auto p-2 leading-relaxed">
         {history.length === 0 && (
           <div className="text-muted-foreground">
-            <p>Terminal ready. Type commands to execute in the Vercel Sandbox.</p>
+            <p>Terminal ready. Type commands to execute in the runtime workspace.</p>
             <p className="mt-1">Press Up/Down arrows to navigate command history.</p>
           </div>
         )}

@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db/client'
-import { tasks } from '@/lib/db/schema'
-import { eq, and, isNull } from 'drizzle-orm'
 import { getOctokit } from '@/lib/github/client'
+import { execInTaskWorkspace, getOwnedTask, toTaskRelativePath } from '@/lib/devbox/task-compat'
 import { getServerSession } from '@/lib/session/get-server-session'
-import { PROJECT_DIR } from '@/lib/sandbox/commands'
 import type { Octokit } from '@octokit/rest'
 
 function getLanguageFromFilename(filename: string): string {
@@ -52,30 +49,25 @@ function isImageFile(filename: string): boolean {
 function isBinaryFile(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase()
   const binaryExtensions = [
-    // Archives
     'zip',
     'tar',
     'gz',
     'rar',
     '7z',
     'bz2',
-    // Executables
     'exe',
     'dll',
     'so',
     'dylib',
-    // Databases
     'db',
     'sqlite',
     'sqlite3',
-    // Media (non-image)
     'mp3',
     'mp4',
     'avi',
     'mov',
     'wav',
     'flac',
-    // Documents
     'pdf',
     'doc',
     'docx',
@@ -83,13 +75,11 @@ function isBinaryFile(filename: string): boolean {
     'xlsx',
     'ppt',
     'pptx',
-    // Fonts
     'ttf',
     'otf',
     'woff',
     'woff2',
     'eot',
-    // Other binary
     'bin',
     'dat',
     'dmg',
@@ -116,7 +106,6 @@ async function getFileContent(
     })
 
     if ('content' in response.data && typeof response.data.content === 'string') {
-      // For images, return the base64 content as-is
       if (isImage) {
         return {
           content: response.data.content,
@@ -124,7 +113,6 @@ async function getFileContent(
         }
       }
 
-      // For text files, decode from base64
       return {
         content: Buffer.from(response.data.content, 'base64').toString('utf-8'),
         isBase64: false,
@@ -133,12 +121,15 @@ async function getFileContent(
 
     return { content: '', isBase64: false }
   } catch (error: unknown) {
-    // File might not exist in this ref (e.g., new file)
     if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
       return { content: '', isBase64: false }
     }
     throw error
   }
+}
+
+function shellEscape(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`
 }
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ taskId: string }> }) {
@@ -150,19 +141,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
 
     const { taskId } = await params
     const searchParams = request.nextUrl.searchParams
-    const filename = searchParams.get('filename')
-    const mode = searchParams.get('mode') // 'local' or undefined (default: remote/PR diff)
+    const rawFilename = searchParams.get('filename')
+    const mode = searchParams.get('mode')
 
-    if (!filename) {
+    if (!rawFilename) {
       return NextResponse.json({ error: 'Missing filename parameter' }, { status: 400 })
     }
 
-    // Get task from database and verify ownership (exclude soft-deleted)
-    const [task] = await db
-      .select()
-      .from(tasks)
-      .where(and(eq(tasks.id, taskId), eq(tasks.userId, session.user.id), isNull(tasks.deletedAt)))
-      .limit(1)
+    const filename = decodeURIComponent(rawFilename)
+    const task = await getOwnedTask(taskId, session.user.id)
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
@@ -172,150 +159,49 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: 'Task does not have branch or repository information' }, { status: 400 })
     }
 
-    // Handle local diff mode (git diff in sandbox)
     if (mode === 'local') {
-      if (!task.sandboxId) {
-        return NextResponse.json({ error: 'Sandbox not available' }, { status: 400 })
-      }
+      const relativeFilename = toTaskRelativePath(filename)
+      const remoteRef = `origin/${task.branchName}`
+      const compareRefResult = await execInTaskWorkspace(
+        task,
+        [
+          `git fetch origin ${shellEscape(task.branchName)} >/dev/null 2>&1 || true`,
+          `if git rev-parse --verify ${shellEscape(remoteRef)} >/dev/null 2>&1; then`,
+          `  printf '%s\\n' ${shellEscape(remoteRef)}`,
+          'else',
+          `  printf '%s\\n' 'HEAD'`,
+          'fi',
+        ].join('\n'),
+        { timeoutSeconds: 60 },
+      )
 
-      try {
-        const { getSandbox } = await import('@/lib/sandbox/sandbox-registry')
-        const { Sandbox } = await import('@vercel/sandbox')
+      const compareRef = compareRefResult.result.stdout.trim() || 'HEAD'
+      const oldContentResult = await execInTaskWorkspace(
+        task,
+        `git show ${shellEscape(`${compareRef}:${relativeFilename}`)} 2>/dev/null || true`,
+        { timeoutSeconds: 30 },
+      )
+      const newContentResult = await execInTaskWorkspace(
+        task,
+        `cat ${shellEscape(relativeFilename)} 2>/dev/null || true`,
+        {
+          timeoutSeconds: 30,
+        },
+      )
 
-        let sandbox = getSandbox(taskId)
-
-        // Try to reconnect if not in registry
-        if (!sandbox) {
-          const sandboxToken = process.env.SANDBOX_VERCEL_TOKEN
-          const teamId = process.env.SANDBOX_VERCEL_TEAM_ID
-          const projectId = process.env.SANDBOX_VERCEL_PROJECT_ID
-
-          if (sandboxToken && teamId && projectId) {
-            sandbox = await Sandbox.get({
-              sandboxId: task.sandboxId,
-              teamId,
-              projectId,
-              token: sandboxToken,
-            })
-          }
-        }
-
-        if (!sandbox) {
-          return NextResponse.json({ error: 'Sandbox not found or inactive' }, { status: 400 })
-        }
-
-        // Fetch latest from remote to ensure we have up-to-date remote refs
-        const fetchResult = await sandbox.runCommand({
-          cmd: 'git',
-          args: ['fetch', 'origin', task.branchName],
-          cwd: PROJECT_DIR,
-        })
-
-        // Check if remote branch actually exists (even if fetch succeeds, the branch might not exist)
-        const remoteBranchRef = `origin/${task.branchName}`
-        const checkRemoteResult = await sandbox.runCommand({
-          cmd: 'git',
-          args: ['rev-parse', '--verify', remoteBranchRef],
-          cwd: PROJECT_DIR,
-        })
-        const remoteBranchExists = checkRemoteResult.exitCode === 0
-
-        if (!remoteBranchExists) {
-          // Remote branch doesn't exist yet, compare against HEAD (local changes only)
-
-          // Get old content (HEAD version)
-          const oldContentResult = await sandbox.runCommand({
-            cmd: 'git',
-            args: ['show', `HEAD:${filename}`],
-            cwd: PROJECT_DIR,
-          })
-          let oldContent = ''
-          if (oldContentResult.exitCode === 0) {
-            oldContent = await oldContentResult.stdout()
-          }
-          // File might not exist in HEAD (new file)
-
-          // Get new content (working directory version)
-          const newContentResult = await sandbox.runCommand({
-            cmd: 'cat',
-            args: [filename],
-            cwd: PROJECT_DIR,
-          })
-          const newContent = newContentResult.exitCode === 0 ? await newContentResult.stdout() : ''
-
-          return NextResponse.json({
-            success: true,
-            data: {
-              filename,
-              oldContent,
-              newContent,
-              language: getLanguageFromFilename(filename),
-              isBinary: false,
-              isImage: false,
-            },
-          })
-        }
-
-        // Compare working directory against remote branch
-        // This shows all uncommitted AND unpushed changes
-        const diffResult = await sandbox.runCommand({
-          cmd: 'git',
-          args: ['diff', remoteBranchRef, filename],
-          cwd: PROJECT_DIR,
-        })
-
-        if (diffResult.exitCode !== 0) {
-          const diffError = await diffResult.stderr()
-          console.error('Failed to get local diff:', diffError)
-          return NextResponse.json({ error: 'Failed to get local diff' }, { status: 500 })
-        }
-
-        const diffOutput = await diffResult.stdout()
-
-        // Get old content (remote branch version)
-        const oldContentResult = await sandbox.runCommand({
-          cmd: 'git',
-          args: ['show', `${remoteBranchRef}:${filename}`],
-          cwd: PROJECT_DIR,
-        })
-        let oldContent = ''
-        if (oldContentResult.exitCode === 0) {
-          oldContent = await oldContentResult.stdout()
-        }
-        // File might not exist on remote (new file)
-
-        // Get new content (working directory version)
-        const newContentResult = await sandbox.runCommand({
-          cmd: 'cat',
-          args: [filename],
-          cwd: PROJECT_DIR,
-        })
-        const newContent = newContentResult.exitCode === 0 ? await newContentResult.stdout() : ''
-
-        return NextResponse.json({
-          success: true,
-          data: {
-            filename,
-            oldContent,
-            newContent,
-            language: getLanguageFromFilename(filename),
-            isBinary: false,
-            isImage: false,
-          },
-        })
-      } catch (error) {
-        console.error('Error getting local diff:', error)
-
-        // Check if it's a 410 error (sandbox not running)
-        if (error && typeof error === 'object' && 'status' in error && error.status === 410) {
-          return NextResponse.json({ error: 'Sandbox is not running' }, { status: 410 })
-        }
-
-        return NextResponse.json({ error: 'Failed to get local diff' }, { status: 500 })
-      }
+      return NextResponse.json({
+        success: true,
+        data: {
+          filename,
+          oldContent: oldContentResult.result.stdout,
+          newContent: newContentResult.result.stdout,
+          language: getLanguageFromFilename(filename),
+          isBinary: false,
+          isImage: false,
+        },
+      })
     }
 
-    // Get user's authenticated GitHub client
     const octokit = await getOctokit()
     if (!octokit.auth) {
       return NextResponse.json(
@@ -326,7 +212,6 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       )
     }
 
-    // Parse GitHub repository URL to get owner and repo
     const githubMatch = task.repoUrl.match(/github\.com\/([^\/]+)\/([^\/\.]+)/)
     if (!githubMatch) {
       return NextResponse.json({ error: 'Invalid GitHub repository URL' }, { status: 400 })
@@ -335,11 +220,9 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const [, owner, repo] = githubMatch
 
     try {
-      // Check if file is an image or other binary
       const isImage = isImageFile(filename)
       const isBinary = isBinaryFile(filename)
 
-      // For non-image binary files, return a special response
       if (isBinary && !isImage) {
         return NextResponse.json({
           success: true,
@@ -354,15 +237,12 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         })
       }
 
-      // Get file content from both base and head commits
       let oldContent = ''
       let newContent = ''
-      let oldIsBase64 = false
       let newIsBase64 = false
       let baseRef = 'main'
       let headRef = task.branchName
 
-      // For PRs (merged or open), use the exact base and head SHAs from the PR
       if (task.prNumber) {
         try {
           const prResponse = await octokit.rest.pulls.get({
@@ -371,117 +251,57 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
             pull_number: task.prNumber,
           })
 
-          // Use the base commit SHA (what main was at PR creation time)
           baseRef = prResponse.data.base.sha
-          // Use the head commit SHA (the PR branch before merge)
           headRef = prResponse.data.head.sha
-
-          console.log('Using PR refs - base:', baseRef, 'head:', headRef)
-
-          // Update merge commit SHA if merged and we don't have it
-          if (prResponse.data.merged_at && prResponse.data.merge_commit_sha && !task.prMergeCommitSha) {
-            await db
-              .update(tasks)
-              .set({
-                prMergeCommitSha: prResponse.data.merge_commit_sha,
-                updatedAt: new Date(),
-              })
-              .where(eq(tasks.id, task.id))
-          }
         } catch (error) {
-          console.error('Failed to fetch PR data, falling back to branch comparison:', error)
-          // Fall through to default branch comparison
+          console.error('Failed to fetch PR data for diff:', error)
         }
       }
 
-      // Get old content from base ref
       try {
         const result = await getFileContent(octokit, owner, repo, filename, baseRef, isImage)
         oldContent = result.content
-        oldIsBase64 = result.isBase64
       } catch (error: unknown) {
-        if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
-          // Try master if main doesn't work (only if we're using default branch names)
-          if (baseRef === 'main') {
-            try {
-              const result = await getFileContent(octokit, owner, repo, filename, 'master', isImage)
-              oldContent = result.content
-              oldIsBase64 = result.isBase64
-              baseRef = 'master'
-            } catch (masterError: unknown) {
-              if (
-                !(
-                  masterError &&
-                  typeof masterError === 'object' &&
-                  'status' in masterError &&
-                  masterError.status === 404
-                )
-              ) {
-                throw masterError
-              }
-              // File doesn't exist in base (could be a new file)
-              oldContent = ''
-              oldIsBase64 = false
-            }
-          } else {
-            // File doesn't exist at this commit (new file)
-            oldContent = ''
-            oldIsBase64 = false
-          }
-        } else {
+        if (error && typeof error === 'object' && 'status' in error && error.status === 404 && baseRef === 'main') {
+          const fallback = await getFileContent(octokit, owner, repo, filename, 'master', isImage)
+          oldContent = fallback.content
+        } else if (!(error && typeof error === 'object' && 'status' in error && error.status === 404)) {
           throw error
         }
       }
 
-      // Get new content from head ref
       try {
         const result = await getFileContent(octokit, owner, repo, filename, headRef, isImage)
         newContent = result.content
         newIsBase64 = result.isBase64
       } catch (error) {
-        console.error('Error fetching new content from ref:', headRef, error)
-        // File might have been deleted
-        if (error && typeof error === 'object' && 'status' in error && error.status === 404) {
-          newContent = ''
-          newIsBase64 = false
-        } else {
+        if (!(error && typeof error === 'object' && 'status' in error && error.status === 404)) {
           throw error
         }
       }
 
-      // Validate that we have content (at least one should be non-empty for a valid diff)
       if (!oldContent && !newContent) {
-        return NextResponse.json(
-          {
-            error: 'File not found in either branch',
-          },
-          { status: 404 },
-        )
+        return NextResponse.json({ error: 'File not found in either branch' }, { status: 404 })
       }
 
       return NextResponse.json({
         success: true,
         data: {
           filename,
-          oldContent: oldContent || '',
-          newContent: newContent || '',
+          oldContent,
+          newContent,
           language: getLanguageFromFilename(filename),
           isBinary: false,
           isImage,
           isBase64: newIsBase64,
         },
       })
-    } catch (error: unknown) {
-      console.error('Error fetching file content from GitHub:', error)
+    } catch (error) {
+      console.error('Error fetching file diff from GitHub:', error)
       return NextResponse.json({ error: 'Failed to fetch file content from GitHub' }, { status: 500 })
     }
   } catch (error) {
     console.error('Error in diff API:', error)
-    return NextResponse.json(
-      {
-        error: error instanceof Error ? error.message : 'Internal server error',
-      },
-      { status: 500 },
-    )
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

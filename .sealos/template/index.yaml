@@ -45,10 +45,20 @@ spec:
     APP_BASE_URL:
       description: 'Public app URL used for OAuth callbacks'
       type: string
-      default: ''
+      default: 'https://${{ defaults.app_host }}.${{ SEALOS_CLOUD_DOMAIN }}'
       required: false
     GITHUB_CLIENT_SECRET:
       description: 'GitHub OAuth client secret'
+      type: string
+      default: ''
+      required: true
+    DEVBOX_TOKEN:
+      description: 'Static DevBox API token for runtime provisioning'
+      type: string
+      default: ''
+      required: true
+    DEVBOX_GATEWAY_URL_TEMPLATE:
+      description: 'Codex gateway URL template for each DevBox runtime'
       type: string
       default: ''
       required: true
@@ -312,6 +322,10 @@ spec:
               value: ${{ inputs.GITHUB_CLIENT_ID }}
             - name: GITHUB_CLIENT_SECRET
               value: ${{ inputs.GITHUB_CLIENT_SECRET }}
+            - name: DEVBOX_TOKEN
+              value: ${{ inputs.DEVBOX_TOKEN }}
+            - name: DEVBOX_GATEWAY_URL_TEMPLATE
+              value: ${{ inputs.DEVBOX_GATEWAY_URL_TEMPLATE }}
             - name: NEXT_PUBLIC_VERCEL_CLIENT_ID
               value: ${{ inputs.NEXT_PUBLIC_VERCEL_CLIENT_ID }}
             - name: VERCEL_CLIENT_SECRET

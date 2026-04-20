@@ -3,7 +3,7 @@ import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
 import { eq, and, isNull } from 'drizzle-orm'
 import { createTaskLogger } from '@/lib/utils/task-logger'
-import { killSandbox } from '@/lib/sandbox/sandbox-registry'
+import { deleteDevbox, DevboxApiError } from '@/lib/devbox/client'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { CodexGatewayApiError, deleteCodexGatewaySession } from '@/lib/codex-gateway/client'
 import { hasActiveTurnCheckpoint, reconcileIncompleteTurn } from '@/lib/codex-gateway/completion'
@@ -104,30 +104,38 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           .set({
             status: 'stopped',
             error: 'Task was stopped by user',
+            runtimeProvider: null,
+            runtimeName: null,
+            runtimeNamespace: null,
+            runtimeState: null,
+            workspacePreparedAt: null,
+            workspaceFingerprint: null,
+            runtimeCheckedAt: null,
+            gatewayReadyAt: null,
+            gatewayUrl: null,
             gatewaySessionId: null,
             activeTurnSessionId: null,
             activeTurnStartedAt: null,
             activeTurnTranscriptCursor: null,
             turnCompletionState: 'failed',
             turnCompletionCheckedAt: new Date(),
+            sandboxId: null,
+            sandboxUrl: null,
             updatedAt: new Date(),
             completedAt: new Date(),
           })
           .where(eq(tasks.id, taskId))
           .returning()
 
-        // Kill the sandbox immediately and aggressively when this task owns one.
-        if (existingTask.sandboxId) {
+        if (existingTask.runtimeName) {
           try {
-            const killResult = await killSandbox(taskId)
-            if (killResult.success) {
-              await logger.success('Sandbox killed successfully')
-            } else {
-              await logger.error('Failed to kill sandbox')
+            await deleteDevbox(existingTask.runtimeName)
+            await logger.success('Devbox runtime deleted')
+          } catch (error) {
+            if (!(error instanceof DevboxApiError && error.status === 404)) {
+              console.error('Failed to delete Devbox runtime during stop:', error)
+              await logger.error('Failed to delete Devbox runtime')
             }
-          } catch (killError) {
-            console.error('Failed to kill sandbox during stop:', killError)
-            await logger.error('Failed to kill sandbox during stop')
           }
         }
 

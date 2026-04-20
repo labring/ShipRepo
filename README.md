@@ -1,6 +1,6 @@
 # Coding Agent Template
 
-A template for building AI-powered coding agents that supports Claude Code, OpenAI's Codex CLI, GitHub Copilot CLI, Cursor CLI, Google Gemini CLI, and opencode with [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) to automatically execute coding tasks on your repositories.
+A template for building AI-powered coding agents that supports Claude Code, OpenAI's Codex CLI, GitHub Copilot CLI, Cursor CLI, Google Gemini CLI, and opencode with a Devbox runtime to automatically execute coding tasks on your repositories.
 
 ![Coding Agent Template Screenshot](screenshot.png)
 
@@ -8,11 +8,11 @@ A template for building AI-powered coding agents that supports Claude Code, Open
 
 You can deploy your own version of the coding agent template to Vercel with one click:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fcoding-agent-template&env=SANDBOX_VERCEL_TEAM_ID,SANDBOX_VERCEL_PROJECT_ID,SANDBOX_VERCEL_TOKEN,JWE_SECRET,ENCRYPTION_KEY&envDescription=Required+environment+variables+for+the+coding+agent+template.+You+must+also+configure+at+least+one+OAuth+provider+(GitHub+or+Vercel)+after+deployment.+Optional+API+keys+can+be+added+later.&stores=%5B%7B%22type%22%3A%22postgres%22%7D%5D&project-name=coding-agent-template&repository-name=coding-agent-template)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel-labs%2Fcoding-agent-template&env=DEVBOX_TOKEN,DEVBOX_GATEWAY_URL_TEMPLATE,JWE_SECRET,ENCRYPTION_KEY&envDescription=Required+environment+variables+for+the+coding+agent+template.+You+must+also+configure+at+least+one+OAuth+provider+(GitHub+or+Vercel)+after+deployment.+Optional+API+keys+can+be+added+later.&stores=%5B%7B%22type%22%3A%22postgres%22%7D%5D&project-name=coding-agent-template&repository-name=coding-agent-template)
 
 **What happens during deployment:**
 - **Automatic Database Setup**: A Neon Postgres database is automatically created and connected to your project
-- **Environment Configuration**: You'll be prompted to provide required environment variables (Vercel credentials and encryption keys)
+- **Environment Configuration**: You'll be prompted to provide required environment variables (Devbox runtime credentials and encryption keys)
 - **OAuth Setup**: After deployment, you'll need to configure at least one OAuth provider (GitHub or Vercel) in your project settings for user authentication
 
 ## Features
@@ -20,7 +20,7 @@ You can deploy your own version of the coding agent template to Vercel with one 
 - **Multi-Agent Support**: Choose from Claude Code, OpenAI Codex CLI, GitHub Copilot CLI, Cursor CLI, Google Gemini CLI, or opencode to execute coding tasks
 - **User Authentication**: Secure sign-in with GitHub or Vercel OAuth
 - **Multi-User Support**: Each user has their own tasks, API keys, and GitHub connection
-- **Vercel Sandbox**: Runs code in isolated, secure sandboxes ([docs](https://vercel.com/docs/vercel-sandbox))
+- **Devbox Runtime**: Runs code in isolated, resumable runtimes
 - **AI Gateway Integration**: Built for seamless integration with [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) for model routing and observability
 - **AI-Generated Branch Names**: Automatically generates descriptive Git branch names using AI SDK 5 + AI Gateway
 - **Task Management**: Track task progress with real-time updates
@@ -152,7 +152,7 @@ The system automatically generates descriptive Git branch names using AI SDK 5 a
 - **Database**: PostgreSQL with Drizzle ORM
 - **AI SDK**: AI SDK 5 with Vercel AI Gateway integration
 - **AI Agents**: Claude Code, OpenAI Codex CLI, GitHub Copilot CLI, Cursor CLI, Google Gemini CLI, opencode
-- **Sandbox**: [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox)
+- **Runtime**: Devbox-based execution environment
 - **Authentication**: Next Auth (OAuth with GitHub/Vercel)
 - **Git**: Automated branching and commits with AI-generated branch names
 
@@ -192,9 +192,8 @@ Create a `.env.local` file with your values:
 These are set once by you (the app developer) and are used for core infrastructure:
 
 - `POSTGRES_URL`: Your PostgreSQL connection string (automatically provided when deploying to Vercel via the Neon integration, or set manually for local development)
-- `SANDBOX_VERCEL_TOKEN`: Your Vercel API token (for creating sandboxes)
-- `SANDBOX_VERCEL_TEAM_ID`: Your Vercel team ID (for sandbox creation)
-- `SANDBOX_VERCEL_PROJECT_ID`: Your Vercel project ID (for sandbox creation)
+- `DEVBOX_TOKEN`: Token used to provision and access the Devbox runtime API
+- `DEVBOX_GATEWAY_URL_TEMPLATE`: URL template used to derive runtime gateway and preview URLs, for example `http://127.0.0.1:{port}`
 - `JWE_SECRET`: Base64-encoded secret for session encryption (generate with: `openssl rand -base64 32`)
 - `ENCRYPTION_KEY`: 32-byte hex string for encrypting user API keys and tokens (generate with: `openssl rand -hex 32`)
 
@@ -353,7 +352,7 @@ pnpm start
 - **Environment Variables**: Never commit `.env` files to version control. All sensitive data should be stored in environment variables.
 - **API Keys**: Rotate your API keys regularly and use the principle of least privilege.
 - **Database Access**: Ensure your PostgreSQL database is properly secured with strong credentials.
-- **Vercel Sandbox**: Sandboxes are isolated but ensure you're not exposing sensitive data in logs or outputs.
+- **Devbox Runtime**: Runtimes are isolated but ensure you're not exposing sensitive data in logs or outputs.
 - **User Authentication**: Each user uses their own GitHub token for repository access - no shared credentials
 - **Encryption**: All sensitive data (tokens, API keys) is encrypted at rest using per-user encryption
 

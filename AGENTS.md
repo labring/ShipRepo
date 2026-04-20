@@ -59,7 +59,7 @@ Examples that remain forbidden:
 - Outside the approved task-flow utility path, this applies to ALL log levels (info, error, success, command, console.log, console.error, console.warn, etc.)
 
 #### Sensitive Data That Must NEVER Appear in Logs:
-- Vercel credentials (SANDBOX_VERCEL_TOKEN, SANDBOX_VERCEL_TEAM_ID, SANDBOX_VERCEL_PROJECT_ID)
+- Devbox runtime credentials (DEVBOX_TOKEN, DEVBOX_JWT_SIGNING_KEY)
 - User IDs and personal information
 - File paths and repository URLs
 - Branch names and commit messages
@@ -73,7 +73,7 @@ The `redactSensitiveInfo()` function in `lib/utils/logging.ts` automatically red
 #### Current Redaction Patterns:
 - API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
 - GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
-- Vercel credentials (SANDBOX_VERCEL_TOKEN, SANDBOX_VERCEL_TEAM_ID, SANDBOX_VERCEL_PROJECT_ID)
+- Devbox runtime credentials (DEVBOX_TOKEN, DEVBOX_JWT_SIGNING_KEY)
 - Bearer tokens
 - JSON fields (teamId, projectId)
 - Environment variables containing KEY, TOKEN, SECRET, PASSWORD, TEAM_ID, PROJECT_ID
@@ -204,9 +204,9 @@ When making changes that involve logging:
 ### Environment Variables
 
 Never expose these in logs or to the client:
-- `SANDBOX_VERCEL_TOKEN` - Vercel API token
-- `SANDBOX_VERCEL_TEAM_ID` - Vercel team identifier
-- `SANDBOX_VERCEL_PROJECT_ID` - Vercel project identifier
+- `DEVBOX_TOKEN` - Devbox runtime API token
+- `DEVBOX_JWT_SIGNING_KEY` - Devbox JWT signing secret
+- `DEVBOX_GATEWAY_URL_TEMPLATE` - Devbox gateway URL template
 - `ANTHROPIC_API_KEY` - Anthropic/Claude API key
 - `OPENAI_API_KEY` - OpenAI API key
 - `GEMINI_API_KEY` - Google Gemini API key
