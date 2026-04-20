@@ -2,7 +2,7 @@
   "generated_at": "2026-04-17T06:14:12Z",
   "project": {
     "github_url": "https://github.com/zjy365/sealos-deploy.git",
-    "work_dir": "/Users/jingyang/work/sealos-deploy-demo",
+    "work_dir": "/Users/jingyang/work/sealos-deploy",
     "repo_name": "sealos-deploy",
     "branch": "main"
   },
@@ -115,5 +115,5 @@
   },
   "has_dockerfile": true,
   "complexity_tier": "L2",
-  "image_ref": "ghcr.io/zjy365/sealos-deploy:20260417-140939"
+  "image_ref": "ghcr.io/zjy365/sealos-deploy:20260420-160928"
 }
