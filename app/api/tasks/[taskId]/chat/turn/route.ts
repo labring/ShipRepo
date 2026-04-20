@@ -11,6 +11,7 @@ import { getServerSession } from '@/lib/session/get-server-session'
 import { appendTaskMessage } from '@/lib/task-messages'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { createTaskLogger } from '@/lib/utils/task-logger'
+import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -81,6 +82,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const prompt = parsed.data.prompt || parsed.data.message || ''
     const logger = createTaskLogger(taskId)
     let userMessagePersisted = false
+    const userInputReceivedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.USER_INPUT_RECEIVED, {
+      promptChars: prompt.length,
+      source: 'chat-turn',
+    })
+    await logger.info(userInputReceivedLog)
+    console.info(userInputReceivedLog)
 
     try {
       await appendTaskMessage({
@@ -89,6 +96,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         content: prompt,
       })
       userMessagePersisted = true
+      const userInputSavedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.USER_INPUT_SAVED, {
+        promptChars: prompt.length,
+        source: 'chat-turn',
+      })
+      await logger.info(userInputSavedLog)
+      console.info(userInputSavedLog)
     } catch {
       console.error('Failed to persist chat turn user message')
     }

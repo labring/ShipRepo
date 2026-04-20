@@ -15,10 +15,11 @@ import {
   resumeDevbox,
 } from '@/lib/devbox/client'
 import { getDevboxArchiveAfterPauseTime, getDevboxDefaultImage, getDevboxNamespace } from '@/lib/devbox/config'
-import { createTaskDevboxName } from '@/lib/devbox/naming'
+import { createTaskDevboxName, createTaskDevboxUpstreamId } from '@/lib/devbox/naming'
 import type { DevboxInfo, DevboxSshInfo } from '@/lib/devbox/types'
 import { getUserGitHubToken } from '@/lib/github/user-token'
 import type { TaskLogger } from '@/lib/utils/task-logger'
+import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 import { createAuthenticatedRepoUrl } from '@/lib/sandbox/config'
 
 export interface TaskRuntimeSummary {
@@ -298,7 +299,11 @@ ${managedCodexConfigToml}EOF`,
     'printf \'%s\\n\' "__CODEX_SKILL_INSTALLED__:$installed_codex_skill"',
   )
 
-  await logger?.info('Bootstrapping Devbox workspace')
+  const workspaceBootstrappingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.DEVBOX_WORKSPACE_BOOTSTRAPPING, {
+    runtimeName,
+  })
+  await logger?.info(workspaceBootstrappingLog)
+  console.info(workspaceBootstrappingLog)
 
   const startedAt = Date.now()
   let lastPendingError = false
@@ -325,9 +330,15 @@ ${managedCodexConfigToml}EOF`,
         throw new Error('Failed to bootstrap Devbox workspace')
       }
 
-      await logger?.success('Devbox workspace bootstrapped')
+      const installedSkill = execResponse.data.stdout.includes(DEVBOX_SKILL_INSTALL_MARKER)
+      const workspaceReadyLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.DEVBOX_WORKSPACE_READY, {
+        runtimeName,
+        installedSkill,
+      })
+      await logger?.success(workspaceReadyLog)
+      console.info(workspaceReadyLog)
       return {
-        installedSkill: execResponse.data.stdout.includes(DEVBOX_SKILL_INSTALL_MARKER),
+        installedSkill,
       }
     } catch (error) {
       if (
@@ -383,8 +394,22 @@ export async function ensureTaskDevboxRuntime(
       )
 
       const runtimeSummary = buildTaskRuntimeSummary(task.runtimeName, runtimeNamespace, gatewayUrl, existingRuntime)
-
-      console.info('Devbox runtime info available')
+      if (needsWorkspaceBootstrap) {
+        await logger?.success(
+          formatKeyTaskLogMessage(TASK_FLOW_LOGS.DEVBOX_RUNTIME_READY, {
+            mode: 'existing',
+            runtimeName: task.runtimeName,
+            runtimeState: existingRuntime.state.phase,
+          }),
+        )
+      }
+      console.info(
+        formatKeyTaskLogMessage(TASK_FLOW_LOGS.DEVBOX_RUNTIME_READY, {
+          mode: 'existing',
+          runtimeName: task.runtimeName,
+          runtimeState: existingRuntime.state.phase,
+        }),
+      )
 
       return runtimeSummary
     } catch (error) {
@@ -396,7 +421,8 @@ export async function ensureTaskDevboxRuntime(
     }
   }
 
-  const existingDevboxes = await listDevboxes(task.id)
+  const upstreamId = createTaskDevboxUpstreamId(task.id)
+  const existingDevboxes = await listDevboxes(upstreamId)
   const existingDevbox = existingDevboxes.data.items[0]
 
   if (existingDevbox) {
@@ -423,7 +449,20 @@ export async function ensureTaskDevboxRuntime(
       needsWorkspaceBootstrap,
     )
 
-    await logger?.success('Linked existing Devbox runtime')
+    const runtimeReusedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.DEVBOX_RUNTIME_REUSED, {
+      mode: 'linked',
+      runtimeName: existingDevbox.name,
+      runtimeState: runtimeInfo.state.phase,
+    })
+    const runtimeReadyLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.DEVBOX_RUNTIME_READY, {
+      mode: 'linked',
+      runtimeName: existingDevbox.name,
+      runtimeState: runtimeInfo.state.phase,
+    })
+    await logger?.info(runtimeReusedLog)
+    await logger?.success(runtimeReadyLog)
+    console.info(runtimeReusedLog)
+    console.info(runtimeReadyLog)
 
     const runtimeSummary: TaskRuntimeSummary = {
       provider: 'devbox',
@@ -435,9 +474,6 @@ export async function ensureTaskDevboxRuntime(
       deletionTimestamp: runtimeInfo.deletionTimestamp,
       ssh: sanitizeSshInfo(runtimeInfo.ssh),
     }
-
-    console.info('Devbox runtime info available')
-
     return runtimeSummary
   }
 
@@ -470,12 +506,17 @@ export async function ensureTaskDevboxRuntime(
     runtimeEnv.CODEX_GATEWAY_JWT_SECRET = process.env.CODEX_GATEWAY_JWT_SECRET
   }
 
-  await logger?.info('Creating Devbox runtime')
+  const runtimeProvisioningLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.DEVBOX_RUNTIME_PROVISIONING, {
+    mode: 'create',
+    runtimeName,
+  })
+  await logger?.info(runtimeProvisioningLog)
+  console.info(runtimeProvisioningLog)
 
   const createResponse = await createDevbox({
     name: runtimeName,
     image: getDevboxDefaultImage(),
-    upstreamID: task.id,
+    upstreamID: upstreamId,
     kubeAccess: {
       enabled: true,
       roleTemplate: 'edit',
@@ -502,11 +543,15 @@ export async function ensureTaskDevboxRuntime(
   })
   await syncTaskRuntimeState(task, runtimeName, createResponse.data.namespace, gatewayUrl, runtimeInfo, true)
 
-  await logger?.success('Devbox runtime created')
+  const runtimeReadyLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.DEVBOX_RUNTIME_READY, {
+    mode: 'created',
+    runtimeName,
+    runtimeState: runtimeInfo.state.phase,
+  })
+  await logger?.success(runtimeReadyLog)
+  console.info(runtimeReadyLog)
 
   const runtimeSummary = buildTaskRuntimeSummary(runtimeName, createResponse.data.namespace, gatewayUrl, runtimeInfo)
-
-  console.info('Devbox runtime info available')
 
   return runtimeSummary
 }

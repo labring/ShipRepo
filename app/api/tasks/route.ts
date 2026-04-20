@@ -26,6 +26,7 @@ import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { getMaxSandboxDuration } from '@/lib/db/settings'
 import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
 import { appendTaskMessage } from '@/lib/task-messages'
+import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -223,7 +224,15 @@ export async function POST(request: NextRequest) {
       }
     })
 
+    const logger = createTaskLogger(taskId)
     let userMessagePersisted = false
+    const userInputReceivedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.USER_INPUT_RECEIVED, {
+      promptChars: validatedData.prompt.length,
+      source: 'task-create',
+      selectedModel,
+    })
+    await logger.info(userInputReceivedLog)
+    console.info(userInputReceivedLog)
 
     try {
       await appendTaskMessage({
@@ -232,11 +241,15 @@ export async function POST(request: NextRequest) {
         content: validatedData.prompt,
       })
       userMessagePersisted = true
+      const userInputSavedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.USER_INPUT_SAVED, {
+        promptChars: validatedData.prompt.length,
+        source: 'task-create',
+      })
+      await logger.info(userInputSavedLog)
+      console.info(userInputSavedLog)
     } catch {
       console.error('Failed to persist task user message')
     }
-
-    const logger = createTaskLogger(taskId)
 
     try {
       await ensureTaskDevboxRuntime(newTask, { logger })

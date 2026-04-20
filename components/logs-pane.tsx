@@ -10,6 +10,7 @@ import { useTasks } from '@/components/app-layout'
 import { getLogsPaneHeight, setLogsPaneHeight, getLogsPaneCollapsed, setLogsPaneCollapsed } from '@/lib/utils/cookies'
 import { Terminal, TerminalRef } from '@/components/terminal'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { isKeyTaskLogMessage, parseKeyTaskLogMessage } from '@/lib/utils/task-flow-logs'
 
 interface LogsPaneProps {
   task: Task
@@ -17,7 +18,7 @@ interface LogsPaneProps {
 }
 
 type TabType = 'logs' | 'terminal'
-type LogFilterType = 'all' | 'platform' | 'server'
+type LogFilterType = 'all' | 'key' | 'platform' | 'server'
 
 export function LogsPane({ task, onHeightChange }: LogsPaneProps) {
   const [copiedLogs, setCopiedLogs] = useState(false)
@@ -161,6 +162,8 @@ export function LogsPane({ task, onHeightChange }: LogsPaneProps) {
   const getFilteredLogs = (filter: LogFilterType) => {
     return (task.logs || []).filter((log) => {
       const isServerLog = log.message.startsWith('[SERVER]')
+      const isKeyLog = isKeyTaskLogMessage(isServerLog ? log.message.substring(9) : log.message)
+      if (filter === 'key') return isKeyLog
       if (filter === 'server') return isServerLog
       if (filter === 'platform') return !isServerLog
       return true
@@ -300,6 +303,7 @@ export function LogsPane({ task, onHeightChange }: LogsPaneProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="key">Key</SelectItem>
                   <SelectItem value="platform">Platform</SelectItem>
                   <SelectItem value="server">Server</SelectItem>
                 </SelectContent>
@@ -357,7 +361,10 @@ export function LogsPane({ task, onHeightChange }: LogsPaneProps) {
         >
           {getFilteredLogs(logFilter).map((log, index) => {
             const isServerLog = log.message.startsWith('[SERVER]')
-            const messageContent = isServerLog ? log.message.substring(9) : log.message // Remove '[SERVER] '
+            const rawMessageContent = isServerLog ? log.message.substring(9) : log.message
+            const parsedKeyLog = parseKeyTaskLogMessage(rawMessageContent)
+            const messageContent = parsedKeyLog.content
+            const metadataEntries = parsedKeyLog.metadata
 
             const getLogColor = (logType: LogEntry['type']) => {
               switch (logType) {
@@ -389,7 +396,37 @@ export function LogsPane({ task, onHeightChange }: LogsPaneProps) {
                 <span className={cn('flex-1', getLogColor(log.type))}>
                   {isServerLog && <span className="text-purple-400">[SERVER]</span>}
                   {isServerLog && ' '}
+                  {parsedKeyLog.isKey && (
+                    <>
+                      <span className="text-amber-300">[KEY]</span>{' '}
+                      {parsedKeyLog.scope && (
+                        <span
+                          className={cn(
+                            parsedKeyLog.scope === 'USER' && 'text-sky-300',
+                            parsedKeyLog.scope === 'DEVBOX' && 'text-emerald-300',
+                            parsedKeyLog.scope === 'GATEWAY' && 'text-orange-300',
+                          )}
+                        >
+                          [{parsedKeyLog.scope}]
+                        </span>
+                      )}{' '}
+                    </>
+                  )}
                   {messageContent}
+                  {metadataEntries.length > 0 && (
+                    <span className="text-white/55">
+                      {' '}
+                      |{' '}
+                      {metadataEntries.map((entry, metadataIndex) => (
+                        <span key={`${entry.key}-${metadataIndex}`}>
+                          <span className="text-cyan-300">{entry.key}</span>
+                          <span className="text-white/45">=</span>
+                          <span className="text-amber-200">{entry.value}</span>
+                          {metadataIndex < metadataEntries.length - 1 && <span className="text-white/35">, </span>}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </span>
               </div>
             )

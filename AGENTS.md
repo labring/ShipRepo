@@ -4,9 +4,9 @@ This document contains critical rules and guidelines for AI agents working on th
 
 ## Security Rules
 
-### CRITICAL: No Dynamic Values in Logs
+### CRITICAL: No Ad-Hoc Dynamic Values in Logs
 
-**All log statements MUST use static strings only. NEVER include dynamic values, regardless of severity.**
+**By default, all log statements MUST use static strings only. Dynamic values are only allowed through the task-flow logging utility in `lib/utils/task-flow-logs.ts`.**
 
 #### Bad Examples (DO NOT DO THIS):
 ```typescript
@@ -26,10 +26,36 @@ console.log('User logged in')
 console.error('Error occurred:', error)
 ```
 
+#### Approved Exception: Key Task Flow Logs
+
+Key task flow logs may include selected dynamic values, but only when all of the following are true:
+
+1. The message is produced via `formatKeyTaskLogMessage()` from `lib/utils/task-flow-logs.ts`
+2. The metadata keys are from the allowlist in that file
+3. The values are operational identifiers only, not secrets or user content
+
+Examples of allowed dynamic values:
+- `sessionId`
+- `runtimeName`
+- `runtimeState`
+- `selectedModel`
+- `promptChars`
+- `transcriptCursor`
+- `turnStatus`
+- `mode`
+- `source`
+- `installedSkill`
+
+Examples that remain forbidden:
+- tokens, secrets, API keys, passwords
+- repository URLs and file paths
+- raw user prompts or assistant content
+- branch names, commit messages, personal identifiers
+
 #### Rationale:
 - **Prevents data leakage**: Dynamic values in logs can expose sensitive information (user IDs, file paths, credentials, etc.) to end users
 - **Security by default**: Logs are displayed directly in the UI and returned in API responses
-- **No exceptions**: This applies to ALL log levels (info, error, success, command, console.log, console.error, console.warn, etc.)
+- Outside the approved task-flow utility path, this applies to ALL log levels (info, error, success, command, console.log, console.error, console.warn, etc.)
 
 #### Sensitive Data That Must NEVER Appear in Logs:
 - Vercel credentials (SANDBOX_VERCEL_TOKEN, SANDBOX_VERCEL_TEAM_ID, SANDBOX_VERCEL_PROJECT_ID)
@@ -296,3 +322,14 @@ npx opensrc <owner>/<repo>      # GitHub repo (e.g., npx opensrc vercel/ai)
 ```
 
 <!-- opensrc:end -->
+4. **Use task-flow logs for approved runtime identifiers**
+   ```typescript
+   import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
+
+   const message = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_SESSION_READY, {
+     sessionId,
+     mode: 'created',
+   })
+   await logger.success(message)
+   console.info(message)
+   ```

@@ -14,6 +14,7 @@ import { taskMessages, tasks } from '@/lib/db/schema'
 import { refreshTaskDevboxLease } from '@/lib/devbox/runtime'
 import { generateId } from '@/lib/utils/id'
 import { createTaskLogger } from '@/lib/utils/task-logger'
+import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 import type { CodexGatewaySessionResponse } from '@/lib/codex-gateway/types'
 
 interface StartCodexGatewayTurnOptions {
@@ -109,7 +110,12 @@ export async function startCodexGatewayTaskTurn(
     gatewaySessionId = ensuredSession.sessionId
   }
 
-  await logger.info('Forwarding prompt to Codex gateway')
+  const turnSendingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_SENDING, {
+    promptChars: prompt.length,
+    sessionId: gatewaySessionId,
+  })
+  await logger.info(turnSendingLog)
+  console.info(turnSendingLog)
   try {
     turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt }, gatewayAuthToken)
   } catch (error) {
@@ -140,10 +146,14 @@ export async function startCodexGatewayTaskTurn(
     turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt }, gatewayAuthToken)
   }
 
-  await logger.info('Waiting for Codex gateway response')
-
   const startedAt = new Date()
   const transcriptCursor = getTurnTranscriptCursor(turnResponse.state.transcript)
+  const turnWaitingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_WAITING, {
+    sessionId: gatewaySessionId,
+    transcriptCursor,
+  })
+  await logger.info(turnWaitingLog)
+  console.info(turnWaitingLog)
 
   await db
     .update(tasks)
@@ -279,7 +289,13 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
       runtimeName: task?.runtimeName || null,
       maxDuration: task?.maxDuration || null,
     })
-    await logger.success('Codex gateway response received')
+    const turnCompletedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_COMPLETED, {
+      sessionId,
+      transcriptCursor,
+      turnStatus: finalState.state.lastTurnStatus,
+    })
+    await logger.success(turnCompletedLog)
+    console.info(turnCompletedLog)
     return
   }
 

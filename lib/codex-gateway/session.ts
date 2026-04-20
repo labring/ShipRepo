@@ -13,6 +13,7 @@ import type { CodexGatewaySessionResponse } from '@/lib/codex-gateway/types'
 import { db } from '@/lib/db/client'
 import { tasks, type Task } from '@/lib/db/schema'
 import type { TaskLogger } from '@/lib/utils/task-logger'
+import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 
 interface EnsureCodexGatewaySessionInput {
   gatewayAuthToken: string | null
@@ -29,6 +30,23 @@ async function persistGatewaySessionState(taskId: string, updates: Partial<Task>
       updatedAt: new Date(),
     })
     .where(eq(tasks.id, taskId))
+}
+
+function emitGatewaySessionLog(
+  logger: TaskLogger | undefined,
+  type: 'info' | 'success',
+  message: string,
+  metadata?: Parameters<typeof formatKeyTaskLogMessage>[1],
+) {
+  const formattedMessage = formatKeyTaskLogMessage(message, metadata)
+
+  if (type === 'success') {
+    void logger?.success(formattedMessage)
+  } else {
+    void logger?.info(formattedMessage)
+  }
+
+  console.info(formattedMessage)
 }
 
 export async function ensureCodexGatewaySession(
@@ -49,6 +67,11 @@ export async function ensureCodexGatewaySession(
       gatewayReadyAt: new Date(),
       selectedModel: FORCED_CODEX_MODEL,
     })
+    emitGatewaySessionLog(input.logger, 'success', TASK_FLOW_LOGS.GATEWAY_SESSION_READY, {
+      mode: 'active',
+      selectedModel: FORCED_CODEX_MODEL,
+      sessionId: input.task.activeTurnSessionId,
+    })
 
     return activeSession
   }
@@ -67,6 +90,11 @@ export async function ensureCodexGatewaySession(
           gatewayUrl: input.gatewayUrl,
           gatewayReadyAt: new Date(),
           selectedModel: FORCED_CODEX_MODEL,
+        })
+        emitGatewaySessionLog(input.logger, 'success', TASK_FLOW_LOGS.GATEWAY_SESSION_READY, {
+          mode: 'existing',
+          selectedModel: FORCED_CODEX_MODEL,
+          sessionId: input.task.gatewaySessionId,
         })
 
         return existing
@@ -96,10 +124,12 @@ export async function ensureCodexGatewaySession(
     }
   }
 
-  await input.logger?.info('Checking Codex gateway readiness')
+  emitGatewaySessionLog(input.logger, 'info', TASK_FLOW_LOGS.GATEWAY_SESSION_PREPARING, {
+    mode: input.task.gatewaySessionId ? 'replace' : 'create',
+    selectedModel: FORCED_CODEX_MODEL,
+  })
   await waitForCodexGatewayReady(input.gatewayUrl)
 
-  await input.logger?.info('Creating Codex gateway session')
   const created = await createCodexGatewaySession(
     input.gatewayUrl,
     forcedModel ? { model: forcedModel } : {},
@@ -111,6 +141,11 @@ export async function ensureCodexGatewaySession(
     gatewaySessionId: created.sessionId,
     gatewayReadyAt: new Date(),
     selectedModel: FORCED_CODEX_MODEL,
+  })
+  emitGatewaySessionLog(input.logger, 'success', TASK_FLOW_LOGS.GATEWAY_SESSION_READY, {
+    mode: input.task.gatewaySessionId ? 'recreated' : 'created',
+    selectedModel: FORCED_CODEX_MODEL,
+    sessionId: created.sessionId,
   })
 
   return created
