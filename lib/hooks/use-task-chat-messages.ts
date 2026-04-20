@@ -482,6 +482,7 @@ export function useTaskChatMessages(taskId: string, task: Task) {
 
       const optimisticMessage = createOptimisticUserMessage(taskId, trimmedContent)
       setPendingMessages((previousMessages) => [...previousMessages, optimisticMessage])
+      setRetainedStreamingMessage(null)
       setIsSending(true)
 
       try {
@@ -582,6 +583,7 @@ export function useTaskChatMessages(taskId: string, task: Task) {
         setGatewaySessionId(null)
         setGatewayStreamUrl(null)
         setGatewayState(null)
+        setRetainedStreamingMessage(null)
       })
       gatewayEventSourceRef.current?.close()
       gatewayEventSourceRef.current = null

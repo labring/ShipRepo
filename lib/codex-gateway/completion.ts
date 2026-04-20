@@ -1,5 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { CodexGatewayApiError, getCodexGatewaySessionState } from '@/lib/codex-gateway/client'
+import { getAssistantContentAfterCursor } from '@/lib/codex-gateway/transcript'
 import { getTaskGatewayContextById } from '@/lib/codex-gateway/task'
 import { db } from '@/lib/db/client'
 import { taskMessages, tasks, type Task } from '@/lib/db/schema'
@@ -42,19 +43,6 @@ export function getPreferredCodexSessionId(task: Task | null | undefined): strin
   }
 
   return task?.gatewaySessionId || null
-}
-
-export function getAssistantContentAfterCursor(
-  transcriptCursor: number,
-  transcript: { role: string; text: string }[],
-): string {
-  const assistantMessages = transcript
-    .slice(transcriptCursor)
-    .filter((entry) => entry.role === 'assistant')
-    .map((entry) => entry.text.trim())
-    .filter(Boolean)
-
-  return assistantMessages.join('\n\n').trim()
 }
 
 export function buildCodexAssistantMessageId(sessionId: string, transcriptCursor: number): string {

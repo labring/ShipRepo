@@ -1,14 +1,10 @@
 import { eq } from 'drizzle-orm'
 import { FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import { CodexGatewayApiError, getCodexGatewaySessionState, sendCodexGatewayTurn } from '@/lib/codex-gateway/client'
-import {
-  finalizeTurnCompletion,
-  getAssistantContentAfterCursor,
-  markTurnCompletionRunning,
-  recordTurnCheckpoint,
-} from '@/lib/codex-gateway/completion'
+import { finalizeTurnCompletion, markTurnCompletionRunning, recordTurnCheckpoint } from '@/lib/codex-gateway/completion'
 import { ensureCodexGatewaySession } from '@/lib/codex-gateway/session'
 import { getTaskGatewayContextById } from '@/lib/codex-gateway/task'
+import { getAssistantContentAfterCursor } from '@/lib/codex-gateway/transcript'
 import { db } from '@/lib/db/client'
 import { taskMessages, tasks } from '@/lib/db/schema'
 import { refreshTaskDevboxLease } from '@/lib/devbox/runtime'

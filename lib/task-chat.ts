@@ -1,4 +1,5 @@
 import type { CodexGatewayState } from '@/lib/codex-gateway/types'
+import { getAssistantContentAfterLastUser, getLastUserTranscriptIndex } from '@/lib/codex-gateway/transcript'
 import type { TaskMessage } from '@/lib/db/schema'
 
 export interface OptimisticTaskMessage extends TaskMessage {
@@ -107,10 +108,7 @@ export function buildStreamingAgentMessage(
     return null
   }
 
-  const lastUserEntryIndex = [...gatewayState.transcript]
-    .map((entry, index) => ({ entry, index }))
-    .reverse()
-    .find(({ entry }) => entry.role === 'user' && entry.text.trim())?.index
+  const lastUserEntryIndex = getLastUserTranscriptIndex(gatewayState.transcript)
 
   const transcriptEntries =
     typeof lastUserEntryIndex === 'number'
@@ -122,11 +120,7 @@ export function buildStreamingAgentMessage(
     return null
   }
 
-  const streamingContent = assistantEntries
-    .map((entry) => entry.text.trim())
-    .filter(Boolean)
-    .join('\n\n')
-    .trim()
+  const streamingContent = getAssistantContentAfterLastUser(gatewayState.transcript)
 
   if (!streamingContent) {
     return null
@@ -163,10 +157,7 @@ export function buildStreamingAgentMessageFromState(
     return null
   }
 
-  const lastUserEntryIndex = [...gatewayState.transcript]
-    .map((entry, index) => ({ entry, index }))
-    .reverse()
-    .find(({ entry }) => entry.role === 'user' && entry.text.trim())?.index
+  const lastUserEntryIndex = getLastUserTranscriptIndex(gatewayState.transcript)
 
   const transcriptEntries =
     typeof lastUserEntryIndex === 'number'
@@ -178,11 +169,7 @@ export function buildStreamingAgentMessageFromState(
     return null
   }
 
-  const content = assistantEntries
-    .map((entry) => entry.text.trim())
-    .filter(Boolean)
-    .join('\n\n')
-    .trim()
+  const content = getAssistantContentAfterLastUser(gatewayState.transcript)
 
   if (!content) {
     return null
@@ -229,7 +216,7 @@ export function combineChatMessages(
 ): ChatTaskMessage[] {
   const combinedMessages: ChatTaskMessage[] = [...persistedMessages, ...pendingMessages]
 
-  if (streamingMessage) {
+  if (streamingMessage && !hasPersistedAssistantContent(persistedMessages, streamingMessage.content)) {
     combinedMessages.push(streamingMessage)
   }
 

@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getCodexGatewayEventStreamUrl } from '@/lib/codex-gateway/client'
-import {
-  buildCodexAssistantMessageId,
-  getAssistantContentAfterCursor,
-  persistAssistantMessage,
-} from '@/lib/codex-gateway/completion'
+import { buildCodexAssistantMessageId, persistAssistantMessage } from '@/lib/codex-gateway/completion'
 import { readChatStreamTicket } from '@/lib/codex-gateway/stream-ticket'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
+import { getAssistantContentAfterCursor } from '@/lib/codex-gateway/transcript'
 import type { CodexGatewayState } from '@/lib/codex-gateway/types'
 import { getServerSession } from '@/lib/session/get-server-session'
 
