@@ -21,7 +21,7 @@ import { TaskChatComposer } from '@/components/task-chat-composer'
 import { TaskChatMarkdown } from '@/components/task-chat-markdown'
 import { TaskChatTranscript } from '@/components/task-chat-transcript'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { useTaskChatMessages } from '@/lib/hooks/use-task-chat-messages'
+import { useTaskAgentChatV2 } from '@/lib/hooks/use-task-agent-chat-v2'
 
 interface TaskChatProps {
   taskId: string
@@ -57,10 +57,6 @@ interface DeploymentInfo {
   createdAt?: string
 }
 
-function isTaskProcessing(status: Task['status']): boolean {
-  return status === 'processing' || status === 'pending'
-}
-
 export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
   const [activeTab, setActiveTab] = useState<'chat' | 'comments' | 'actions' | 'deployments'>('chat')
   const [newMessage, setNewMessage] = useAtom(taskChatInputAtomFamily(taskId))
@@ -79,17 +75,19 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
   const deploymentLoadedRef = useRef(false)
 
   const {
+    activityItems,
     error: chatError,
     isGatewayTask,
     isLoading,
     isSending,
     isStopping,
+    isStreaming,
     messages,
     refreshMessages,
     retryMessage,
     sendMessage,
     stopTask,
-  } = useTaskChatMessages(taskId, task)
+  } = useTaskAgentChatV2(taskId, task)
 
   const fetchPRComments = useCallback(
     async (showLoading = true) => {
@@ -247,11 +245,11 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
   const handleStopTask = useCallback(async () => {
     const result = await stopTask()
     if (result.success) {
-      toast.success('Task stopped successfully')
+      toast.success('Generation stopped')
       return
     }
 
-    toast.error(result.error || 'Failed to stop task')
+    toast.error(result.error || 'Failed to stop generation')
   }, [stopTask])
 
   const handleCopyMessage = useCallback(async (messageId: string, content: string) => {
@@ -584,8 +582,10 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
 
     return (
       <TaskChatTranscript
+        activityItems={activityItems}
         copiedMessageId={copiedMessageId}
         isGatewayTask={isGatewayTask}
+        isStreaming={isStreaming}
         logs={task.logs || []}
         messages={messages}
         onCopyMessage={handleCopyMessage}
@@ -630,7 +630,7 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
         <TaskChatComposer
           value={newMessage}
           setValue={setNewMessage}
-          isProcessing={isTaskProcessing(task.status)}
+          isProcessing={isStreaming}
           isSending={isSending}
           isStopping={isStopping}
           onSend={handleSendMessage}

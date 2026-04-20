@@ -20,6 +20,7 @@ export class CodexGatewayApiError extends Error {
 
 const CODEX_GATEWAY_STARTUP_TIMEOUT_MS = 60_000
 const CODEX_GATEWAY_STARTUP_RETRY_MS = 1_000
+const CODEX_GATEWAY_REQUEST_TIMEOUT_MS = 10_000
 
 function buildUrl(baseUrl: string, path: string): string {
   const url = new URL(baseUrl)
@@ -53,10 +54,13 @@ async function request<T>(baseUrl: string, path: string, init?: RequestInit, aut
     headers.set('authorization', `Bearer ${authToken}`)
   }
 
+  const signal = init?.signal || AbortSignal.timeout(CODEX_GATEWAY_REQUEST_TIMEOUT_MS)
+
   const response = await fetch(requestUrl, {
     ...init,
     headers,
     cache: 'no-store',
+    signal,
   })
 
   const body = await parseResponse(response)
@@ -173,6 +177,22 @@ export async function sendCodexGatewayTurn(
     {
       method: 'POST',
       body: JSON.stringify(input),
+    },
+    authToken,
+  )
+}
+
+export async function interruptCodexGatewayTurn(
+  baseUrl: string,
+  sessionId: string,
+  authToken?: string | null,
+): Promise<CodexGatewaySessionResponse> {
+  return await request<CodexGatewaySessionResponse>(
+    baseUrl,
+    `/api/sessions/${encodeURIComponent(sessionId)}/turn/interrupt`,
+    {
+      method: 'POST',
+      body: JSON.stringify({}),
     },
     authToken,
   )

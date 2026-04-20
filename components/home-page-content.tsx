@@ -29,7 +29,6 @@ import { multiRepoModeAtom, selectedReposAtom } from '@/lib/atoms/multi-repo'
 import { sessionAtom } from '@/lib/atoms/session'
 import { githubConnectionAtom, githubConnectionInitializedAtom } from '@/lib/atoms/github-connection'
 import { OpenRepoUrlDialog } from '@/components/open-repo-url-dialog'
-import { MultiRepoDialog } from '@/components/multi-repo-dialog'
 
 interface HomePageContentProps {
   initialSelectedOwner?: string
@@ -62,7 +61,6 @@ export function HomePageContent({
   const [loadingGitHub, setLoadingGitHub] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [showOpenRepoDialog, setShowOpenRepoDialog] = useState(false)
-  const [showMultiRepoDialog, setShowMultiRepoDialog] = useState(false)
   const router = useRouter()
   const searchParams = useSearchParams()
   const { refreshTasks, addTaskOptimistically } = useTasks()
@@ -265,7 +263,6 @@ export function HomePageContent({
             onOwnerChange={handleOwnerChange}
             onRepoChange={handleRepoChange}
             size="sm"
-            onMultiRepoClick={() => setShowMultiRepoDialog(true)}
           />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -557,6 +554,7 @@ export function HomePageContent({
         <TaskForm
           onSubmit={handleTaskSubmit}
           isSubmitting={isSubmitting}
+          isAuthenticated={Boolean(user)}
           selectedOwner={selectedOwner}
           selectedRepo={selectedRepo}
           initialInstallDependencies={initialInstallDependencies}
@@ -572,7 +570,6 @@ export function HomePageContent({
 
       {/* Dialogs */}
       <OpenRepoUrlDialog open={showOpenRepoDialog} onOpenChange={setShowOpenRepoDialog} onSubmit={handleOpenRepoUrl} />
-      <MultiRepoDialog open={showMultiRepoDialog} onOpenChange={setShowMultiRepoDialog} />
 
       {/* Sign In Dialog */}
       <Dialog open={showSignInDialog} onOpenChange={setShowSignInDialog}>

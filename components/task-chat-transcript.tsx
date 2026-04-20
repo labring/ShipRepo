@@ -3,14 +3,18 @@
 import { memo, useDeferredValue, useEffect, useMemo, useRef } from 'react'
 import { Check, Copy, Loader2, RotateCcw } from 'lucide-react'
 import type { LogEntry, Task } from '@/lib/db/schema'
+import { TaskAgentActivity } from '@/components/task-agent-activity'
 import type { ChatTaskMessage } from '@/lib/task-chat'
 import { buildChatTurns, parseTaskAgentMessage } from '@/lib/task-chat'
+import type { TaskAgentActivityItem } from '@/lib/task-agent-events'
 import { TaskChatMarkdown } from '@/components/task-chat-markdown'
 import { cn } from '@/lib/utils'
 
 interface TaskChatTranscriptProps {
+  activityItems: TaskAgentActivityItem[]
   copiedMessageId: string | null
   isGatewayTask: boolean
+  isStreaming: boolean
   logs: LogEntry[]
   messages: ChatTaskMessage[]
   onCopyMessage: (messageId: string, content: string) => void
@@ -23,8 +27,10 @@ function isTaskProcessing(status: Task['status']): boolean {
 }
 
 export const TaskChatTranscript = memo(function TaskChatTranscript({
+  activityItems,
   copiedMessageId,
   isGatewayTask,
+  isStreaming,
   logs,
   messages,
   onCopyMessage,
@@ -35,7 +41,7 @@ export const TaskChatTranscript = memo(function TaskChatTranscript({
   const wasAtBottomRef = useRef(true)
   const deferredMessages = useDeferredValue(messages)
   const turns = useMemo(() => buildChatTurns(deferredMessages), [deferredMessages])
-  const isProcessing = isTaskProcessing(status)
+  const isProcessing = isStreaming || isTaskProcessing(status)
 
   const visibleLogs = useMemo(() => logs.filter((entry) => !entry.message.startsWith('[SERVER]')).slice(-6), [logs])
 
@@ -90,6 +96,7 @@ export const TaskChatTranscript = memo(function TaskChatTranscript({
   return (
     <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-4">
       <div className="space-y-6 px-1">
+        {isGatewayTask ? <TaskAgentActivity items={activityItems} isStreaming={isStreaming} /> : null}
         {turns.map((turn, index) => {
           const isLastTurn = index === turns.length - 1
           const showWaitingState = isLastTurn && isProcessing && turn.agentMessages.length === 0

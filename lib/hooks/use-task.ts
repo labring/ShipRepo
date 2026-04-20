@@ -33,8 +33,14 @@ export function useTask(taskId: string) {
   const attemptCountRef = useRef(0)
   const hasFoundTaskRef = useRef(false)
   const pendingSandboxRefetchRef = useRef(false)
+  const inFlightRef = useRef(false)
 
   const fetchTask = useCallback(async () => {
+    if (inFlightRef.current) {
+      return
+    }
+
+    inFlightRef.current = true
     let errorOccurred = false
     try {
       const response = await fetch(`/api/tasks/${taskId}`)
@@ -70,6 +76,7 @@ export function useTask(taskId: string) {
       setError('Failed to fetch task')
       errorOccurred = true
     } finally {
+      inFlightRef.current = false
       // Only stop loading after we've either found the task or exceeded attempt threshold
       if (hasFoundTaskRef.current || attemptCountRef.current >= 3 || errorOccurred) {
         setIsLoading(false)

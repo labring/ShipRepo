@@ -406,6 +406,119 @@ export const selectKeySchema = z.object({
 export type Key = z.infer<typeof selectKeySchema>
 export type InsertKey = z.infer<typeof insertKeySchema>
 
+export const taskEventKindValues = [
+  'user_message.created',
+  'gateway.session.opened',
+  'gateway.state.snapshot',
+  'gateway.notification',
+  'gateway.server_request',
+  'gateway.warning',
+  'gateway.session.closed',
+  'turn.started',
+  'turn.interrupted',
+  'turn.completed',
+  'turn.failed',
+  'assistant.message.projected',
+] as const
+
+export const taskEventKindSchema = z.enum(taskEventKindValues)
+export type TaskEventKind = z.infer<typeof taskEventKindSchema>
+
+export const taskEvents = pgTable(
+  'task_events',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }),
+    seq: integer('seq').notNull(),
+    kind: text('kind').notNull().$type<TaskEventKind>(),
+    streamId: text('stream_id'),
+    sessionId: text('session_id'),
+    threadId: text('thread_id'),
+    turnId: text('turn_id'),
+    payload: jsonb('payload').$type<Record<string, unknown> | null>(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    taskSeqUnique: uniqueIndex('task_events_task_id_seq_idx').on(table.taskId, table.seq),
+  }),
+)
+
+export const insertTaskEventSchema = z.object({
+  id: z.string().optional(),
+  taskId: z.string().min(1, 'Task ID is required'),
+  seq: z.number().int().nonnegative().optional(),
+  kind: taskEventKindSchema,
+  streamId: z.string().optional(),
+  sessionId: z.string().optional(),
+  threadId: z.string().optional(),
+  turnId: z.string().optional(),
+  payload: z.record(z.string(), z.unknown()).nullable().optional(),
+  createdAt: z.date().optional(),
+})
+
+export const selectTaskEventSchema = z.object({
+  id: z.string(),
+  taskId: z.string(),
+  seq: z.number().int(),
+  kind: taskEventKindSchema,
+  streamId: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  threadId: z.string().nullable(),
+  turnId: z.string().nullable(),
+  payload: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.date(),
+})
+
+export type TaskEvent = z.infer<typeof selectTaskEventSchema>
+export type InsertTaskEvent = z.infer<typeof insertTaskEventSchema>
+
+export const taskStreamStatusValues = ['active', 'closed', 'errored'] as const
+export const taskStreamStatusSchema = z.enum(taskStreamStatusValues)
+export type TaskStreamStatus = z.infer<typeof taskStreamStatusSchema>
+
+export const taskStreams = pgTable('task_streams', {
+  id: text('id').primaryKey(),
+  taskId: text('task_id')
+    .notNull()
+    .references(() => tasks.id, { onDelete: 'cascade' }),
+  sessionId: text('session_id').notNull(),
+  threadId: text('thread_id'),
+  turnId: text('turn_id'),
+  status: text('status').notNull().$type<TaskStreamStatus>().default('active'),
+  startedAt: timestamp('started_at').defaultNow().notNull(),
+  lastEventAt: timestamp('last_event_at').defaultNow().notNull(),
+  endedAt: timestamp('ended_at'),
+})
+
+export const insertTaskStreamSchema = z.object({
+  id: z.string().optional(),
+  taskId: z.string().min(1, 'Task ID is required'),
+  sessionId: z.string().min(1, 'Session ID is required'),
+  threadId: z.string().optional(),
+  turnId: z.string().optional(),
+  status: taskStreamStatusSchema.optional(),
+  startedAt: z.date().optional(),
+  lastEventAt: z.date().optional(),
+  endedAt: z.date().optional(),
+})
+
+export const selectTaskStreamSchema = z.object({
+  id: z.string(),
+  taskId: z.string(),
+  sessionId: z.string(),
+  threadId: z.string().nullable(),
+  turnId: z.string().nullable(),
+  status: taskStreamStatusSchema,
+  startedAt: z.date(),
+  lastEventAt: z.date(),
+  endedAt: z.date().nullable(),
+})
+
+export type TaskStream = z.infer<typeof selectTaskStreamSchema>
+export type InsertTaskStream = z.infer<typeof insertTaskStreamSchema>
+
 // Task messages table - stores user and agent messages for each task
 export const taskMessages = pgTable('task_messages', {
   id: text('id').primaryKey(),

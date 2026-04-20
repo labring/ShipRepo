@@ -1,10 +1,12 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { CodexGatewayApiError, getCodexGatewaySessionState } from '@/lib/codex-gateway/client'
 import { getAssistantContentAfterCursor } from '@/lib/codex-gateway/transcript'
 import { getTaskGatewayContextById } from '@/lib/codex-gateway/task'
 import { db } from '@/lib/db/client'
-import { taskMessages, tasks, type Task } from '@/lib/db/schema'
-import { generateId } from '@/lib/utils/id'
+import { tasks, type Task } from '@/lib/db/schema'
+import { buildProjectedAssistantMessageId, projectAssistantMessage } from '@/lib/task-event-projection'
+import { appendProjectedAssistantMessageEvent, recordTaskEvent } from '@/lib/task-events'
+import { OperationTimeoutError, withTimeout } from '@/lib/utils/async'
 
 export const TURN_COMPLETION_STATES = ['pending', 'running', 'completed', 'failed'] as const
 
@@ -14,7 +16,9 @@ interface TurnCheckpointInput {
   sessionId: string
   startedAt: Date
   taskId: string
+  threadId?: string | null
   transcriptCursor: number
+  turnId?: string | null
 }
 
 interface FinalizeTurnInput {
@@ -25,6 +29,7 @@ interface FinalizeTurnInput {
   success: boolean
   taskId: string
   transcriptCursor: number
+  turnStatus?: string | null
 }
 
 export function hasActiveTurnCheckpoint(task: Task | null | undefined): boolean {
@@ -45,8 +50,20 @@ export function getPreferredCodexSessionId(task: Task | null | undefined): strin
   return task?.gatewaySessionId || null
 }
 
+export function shouldAttemptTurnReconciliation(task: Task | null | undefined, minIntervalMs = 10_000): boolean {
+  if (!hasActiveTurnCheckpoint(task)) {
+    return false
+  }
+
+  if (!task?.turnCompletionCheckedAt) {
+    return true
+  }
+
+  return Date.now() - new Date(task.turnCompletionCheckedAt).getTime() >= minIntervalMs
+}
+
 export function buildCodexAssistantMessageId(sessionId: string, transcriptCursor: number): string {
-  return `codex-agent-${sessionId}-${transcriptCursor}`
+  return buildProjectedAssistantMessageId(sessionId, transcriptCursor)
 }
 
 export async function persistAssistantMessage(
@@ -56,46 +73,10 @@ export async function persistAssistantMessage(
     messageId?: string
   },
 ): Promise<void> {
-  const trimmedContent = content.trim()
-  if (!trimmedContent) {
-    return
-  }
-
-  if (options?.messageId) {
-    await db
-      .insert(taskMessages)
-      .values({
-        id: options.messageId,
-        taskId,
-        role: 'agent',
-        content: trimmedContent,
-      })
-      .onConflictDoUpdate({
-        target: taskMessages.id,
-        set: {
-          content: trimmedContent,
-        },
-      })
-
-    return
-  }
-
-  const [latestPersistedAgentMessage] = await db
-    .select({ content: taskMessages.content })
-    .from(taskMessages)
-    .where(and(eq(taskMessages.taskId, taskId), eq(taskMessages.role, 'agent')))
-    .orderBy(desc(taskMessages.createdAt))
-    .limit(1)
-
-  if (latestPersistedAgentMessage?.content.trim() === trimmedContent) {
-    return
-  }
-
-  await db.insert(taskMessages).values({
-    id: generateId(12),
+  await projectAssistantMessage({
     taskId,
-    role: 'agent',
-    content: trimmedContent,
+    content,
+    messageId: options?.messageId,
   })
 }
 
@@ -111,6 +92,19 @@ export async function recordTurnCheckpoint(input: TurnCheckpointInput): Promise<
       updatedAt: new Date(),
     })
     .where(eq(tasks.id, input.taskId))
+
+  await recordTaskEvent({
+    taskId: input.taskId,
+    kind: 'turn.started',
+    createdAt: input.startedAt,
+    sessionId: input.sessionId,
+    threadId: input.threadId,
+    turnId: input.turnId,
+    payload: {
+      transcriptCursor: input.transcriptCursor,
+      startedAt: input.startedAt.toISOString(),
+    },
+  })
 }
 
 export async function markTurnCompletionRunning(taskId: string): Promise<void> {
@@ -124,8 +118,28 @@ export async function markTurnCompletionRunning(taskId: string): Promise<void> {
 }
 
 export async function finalizeTurnCompletion(input: FinalizeTurnInput): Promise<Task | null> {
-  await persistAssistantMessage(input.taskId, input.assistantContent, {
-    messageId: buildCodexAssistantMessageId(input.sessionId, input.transcriptCursor),
+  const interrupted = input.turnStatus === 'interrupted'
+
+  if (input.assistantContent.trim()) {
+    await appendProjectedAssistantMessageEvent({
+      taskId: input.taskId,
+      sessionId: input.sessionId,
+      transcriptCursor: input.transcriptCursor,
+      content: input.assistantContent,
+    })
+  }
+
+  await recordTaskEvent({
+    taskId: input.taskId,
+    kind: interrupted ? 'turn.interrupted' : input.success ? 'turn.completed' : 'turn.failed',
+    sessionId: input.sessionId,
+    payload: {
+      transcriptCursor: input.transcriptCursor,
+      content: input.assistantContent.trim() || null,
+      error: input.error,
+      success: input.success,
+      turnStatus: input.turnStatus || null,
+    },
   })
 
   const updates = {
@@ -134,9 +148,9 @@ export async function finalizeTurnCompletion(input: FinalizeTurnInput): Promise<
     activeTurnTranscriptCursor: null,
     turnCompletionState: input.success ? ('completed' as const) : ('failed' as const),
     turnCompletionCheckedAt: new Date(),
-    status: input.success ? ('completed' as const) : ('error' as const),
-    progress: input.success ? 100 : 0,
-    error: input.success ? null : input.error,
+    status: interrupted || input.success ? ('completed' as const) : ('error' as const),
+    progress: interrupted || input.success ? 100 : 0,
+    error: interrupted || input.success ? null : input.error,
     updatedAt: new Date(),
     ...(input.clearGatewaySession ? { gatewaySessionId: null } : {}),
   }
@@ -180,11 +194,17 @@ export async function reconcileIncompleteTurn(taskId: string): Promise<Task | nu
       sessionId: task.activeTurnSessionId,
       transcriptCursor: task.activeTurnTranscriptCursor!,
       assistantContent,
-      success: sessionState.state.lastTurnStatus === 'completed' || sessionState.state.lastTurnStatus === 'succeeded',
+      success:
+        sessionState.state.lastTurnStatus === 'completed' ||
+        sessionState.state.lastTurnStatus === 'succeeded' ||
+        sessionState.state.lastTurnStatus === 'interrupted',
       error:
-        sessionState.state.lastTurnStatus === 'completed' || sessionState.state.lastTurnStatus === 'succeeded'
+        sessionState.state.lastTurnStatus === 'completed' ||
+        sessionState.state.lastTurnStatus === 'succeeded' ||
+        sessionState.state.lastTurnStatus === 'interrupted'
           ? null
           : 'Codex gateway turn failed',
+      turnStatus: sessionState.state.lastTurnStatus,
     })
   } catch (error) {
     if (error instanceof CodexGatewayApiError && error.status === 404) {
@@ -197,6 +217,18 @@ export async function reconcileIncompleteTurn(taskId: string): Promise<Task | nu
         error: 'Codex gateway session is no longer available',
         clearGatewaySession: true,
       })
+    }
+
+    throw error
+  }
+}
+
+export async function reconcileIncompleteTurnSafely(taskId: string, timeoutMs = 3_000): Promise<Task | null> {
+  try {
+    return await withTimeout(reconcileIncompleteTurn(taskId), timeoutMs, 'Codex turn reconcile timed out')
+  } catch (error) {
+    if (error instanceof OperationTimeoutError) {
+      return null
     }
 
     throw error

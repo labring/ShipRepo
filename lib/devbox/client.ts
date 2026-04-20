@@ -24,6 +24,8 @@ export class DevboxApiError extends Error {
   }
 }
 
+const DEVBOX_REQUEST_TIMEOUT_MS = 10_000
+
 function buildUrl(pathname: string, searchParams?: URLSearchParams, includeApiPrefix: boolean = true): string {
   const basePath = includeApiPrefix ? `${getDevboxApiPrefix()}${pathname}` : pathname
   const url = new URL(basePath, getDevboxBaseUrl())
@@ -75,10 +77,13 @@ async function devboxRequest<T>(
     headers.set('Content-Type', 'application/json')
   }
 
+  const signal = init?.signal || AbortSignal.timeout(DEVBOX_REQUEST_TIMEOUT_MS)
+
   const response = await fetch(buildUrl(pathname, init?.searchParams, init?.includeApiPrefix), {
     ...init,
     headers,
     cache: 'no-store',
+    signal,
   })
 
   return await parseJsonResponse<T>(response)

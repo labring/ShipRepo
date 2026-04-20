@@ -6,8 +6,13 @@ import { createTaskLogger } from '@/lib/utils/task-logger'
 import { deleteDevbox, DevboxApiError } from '@/lib/devbox/client'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { CodexGatewayApiError, deleteCodexGatewaySession } from '@/lib/codex-gateway/client'
-import { hasActiveTurnCheckpoint, reconcileIncompleteTurn } from '@/lib/codex-gateway/completion'
+import {
+  hasActiveTurnCheckpoint,
+  reconcileIncompleteTurnSafely,
+  shouldAttemptTurnReconciliation,
+} from '@/lib/codex-gateway/completion'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
+import { closeTaskChatV2StreamDescriptor } from '@/lib/task-chat-v2'
 
 interface RouteParams {
   params: Promise<{
@@ -35,9 +40,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     let currentTask = task[0]
 
-    if (currentTask.selectedAgent === 'codex' && hasActiveTurnCheckpoint(currentTask)) {
+    if (
+      currentTask.selectedAgent === 'codex' &&
+      hasActiveTurnCheckpoint(currentTask) &&
+      shouldAttemptTurnReconciliation(currentTask)
+    ) {
       try {
-        currentTask = (await reconcileIncompleteTurn(currentTask.id)) || currentTask
+        currentTask = (await reconcileIncompleteTurnSafely(currentTask.id)) || currentTask
       } catch {
         console.error('Failed to reconcile incomplete Codex turn')
       }
@@ -126,6 +135,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
           })
           .where(eq(tasks.id, taskId))
           .returning()
+
+        await closeTaskChatV2StreamDescriptor(taskId).catch(() => {
+          console.error('Failed to close active chat stream during stop')
+        })
 
         if (existingTask.runtimeName) {
           try {

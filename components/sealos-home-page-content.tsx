@@ -169,6 +169,7 @@ export function SealosHomePageContent({
         <TaskForm
           onSubmit={handleTaskSubmit}
           isSubmitting={isSubmitting}
+          isAuthenticated={Boolean(user)}
           selectedOwner={selectedOwner}
           selectedRepo={selectedRepo}
           initialMaxDuration={initialMaxDuration}
