@@ -97,6 +97,7 @@ export async function startCodexGatewayTaskTurn(
     })
   }
   let gatewaySessionId = task.gatewaySessionId
+  let gatewayThreadId: string | null | undefined = null
   let turnResponse: CodexGatewaySessionResponse
 
   if (!gatewaySessionId) {
@@ -108,11 +109,22 @@ export async function startCodexGatewayTaskTurn(
     })
 
     gatewaySessionId = ensuredSession.sessionId
+    gatewayThreadId = ensuredSession.state.threadId
+  } else {
+    try {
+      const existingSession = await getCodexGatewaySessionState(gatewayUrl, gatewaySessionId, gatewayAuthToken)
+      gatewayThreadId = existingSession.state.threadId
+    } catch (error) {
+      if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
+        throw error
+      }
+    }
   }
 
   const turnSendingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_SENDING, {
     promptChars: prompt.length,
     sessionId: gatewaySessionId,
+    threadId: gatewayThreadId,
   })
   await logger.info(turnSendingLog)
   console.info(turnSendingLog)
@@ -143,6 +155,15 @@ export async function startCodexGatewayTaskTurn(
     })
 
     gatewaySessionId = refreshedSession.sessionId
+    gatewayThreadId = refreshedSession.state.threadId
+    const retryTurnSendingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_SENDING, {
+      mode: 'recreated',
+      promptChars: prompt.length,
+      sessionId: gatewaySessionId,
+      threadId: gatewayThreadId,
+    })
+    await logger.info(retryTurnSendingLog)
+    console.info(retryTurnSendingLog)
     turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt }, gatewayAuthToken)
   }
 
@@ -150,6 +171,7 @@ export async function startCodexGatewayTaskTurn(
   const transcriptCursor = getTurnTranscriptCursor(turnResponse.state.transcript)
   const turnWaitingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_WAITING, {
     sessionId: gatewaySessionId,
+    threadId: turnResponse.state.threadId,
     transcriptCursor,
   })
   await logger.info(turnWaitingLog)
@@ -291,6 +313,7 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
     })
     const turnCompletedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_COMPLETED, {
       sessionId,
+      threadId: finalState.state.threadId,
       transcriptCursor,
       turnStatus: finalState.state.lastTurnStatus,
     })

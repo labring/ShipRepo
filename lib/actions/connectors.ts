@@ -2,12 +2,12 @@
 
 import { db } from '@/lib/db/client'
 import { connectors, insertConnectorSchema } from '@/lib/db/schema'
-import { nanoid } from 'nanoid'
 import { revalidatePath } from 'next/cache'
 import { ZodError } from 'zod'
 import { eq, and } from 'drizzle-orm'
 import { encrypt, decrypt } from '@/lib/crypto'
 import { getServerSession } from '@/lib/session/get-server-session'
+import { generateId } from '@/lib/utils/id'
 
 type FormState = {
   success: boolean
@@ -37,7 +37,7 @@ export async function createConnector(_: FormState, formData: FormData): Promise
     const envJson = formData.get('env') as string
 
     const connectorData = {
-      id: nanoid(),
+      id: generateId(21),
       userId: session.user.id,
       name,
       description: description?.trim() || undefined,

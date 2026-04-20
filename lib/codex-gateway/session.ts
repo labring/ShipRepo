@@ -71,6 +71,7 @@ export async function ensureCodexGatewaySession(
       mode: 'active',
       selectedModel: FORCED_CODEX_MODEL,
       sessionId: input.task.activeTurnSessionId,
+      threadId: activeSession.state.threadId,
     })
 
     return activeSession
@@ -95,6 +96,7 @@ export async function ensureCodexGatewaySession(
           mode: 'existing',
           selectedModel: FORCED_CODEX_MODEL,
           sessionId: input.task.gatewaySessionId,
+          threadId: existing.state.threadId,
         })
 
         return existing
@@ -146,6 +148,7 @@ export async function ensureCodexGatewaySession(
     mode: input.task.gatewaySessionId ? 'recreated' : 'created',
     selectedModel: FORCED_CODEX_MODEL,
     sessionId: created.sessionId,
+    threadId: created.state.threadId,
   })
 
   return created

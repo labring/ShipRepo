@@ -3,7 +3,7 @@ import 'server-only'
 import { db } from './client'
 import { users, accounts, type InsertUser } from './schema'
 import { eq, and } from 'drizzle-orm'
-import { nanoid } from 'nanoid'
+import { generateId } from '@/lib/utils/id'
 
 /**
  * Find or create a user in the database
@@ -75,7 +75,7 @@ export async function upsertUser(
   }
 
   // User doesn't exist at all - create new
-  const userId = nanoid()
+  const userId = generateId(21)
   const now = new Date()
 
   await db.insert(users).values({

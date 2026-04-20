@@ -1,5 +1,5 @@
 import { generateText } from 'ai'
-import { customAlphabet } from 'nanoid'
+import { generateId } from '@/lib/utils/id'
 
 export interface BranchNameOptions {
   description: string
@@ -47,10 +47,8 @@ Return ONLY the branch name, nothing else.`
     // Clean up the response (remove any extra whitespace or quotes)
     const baseBranchName = result.text.trim().replace(/^["']|["']$/g, '')
 
-    // Generate a 6-character alphanumeric hash to avoid conflicts
-    const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
-    const nanoid = customAlphabet(alphabet, 6)
-    const hash = nanoid()
+    // Generate a 6-character alphanumeric suffix to avoid conflicts
+    const hash = generateId(6)
     const branchName = `${baseBranchName}-${hash}`
 
     // Validate the base branch name

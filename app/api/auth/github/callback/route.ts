@@ -3,10 +3,10 @@ import { cookies } from 'next/headers'
 import { db } from '@/lib/db/client'
 import { users, accounts, tasks, connectors, keys } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
-import { nanoid } from 'nanoid'
 import { getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
 import { createGitHubSession, saveSession } from '@/lib/session/create-github'
 import { encrypt } from '@/lib/crypto'
+import { generateId } from '@/lib/utils/id'
 
 export async function GET(req: NextRequest): Promise<Response> {
   const code = req.nextUrl.searchParams.get('code')
@@ -200,7 +200,7 @@ export async function GET(req: NextRequest): Promise<Response> {
       } else {
         // No existing GitHub account connection, create a new one
         await db.insert(accounts).values({
-          id: nanoid(),
+          id: generateId(21),
           userId: storedUserId!,
           provider: 'github',
           externalUserId: `${githubUser.id}`, // Store GitHub numeric ID

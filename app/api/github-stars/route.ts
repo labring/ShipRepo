@@ -5,11 +5,21 @@ const CACHE_DURATION = 5 * 60 // 5 minutes in seconds
 
 let cachedStars: number | null = null
 let lastFetch = 0
+let lastFailureLogAt = 0
+
+function shouldLogGitHubStarsFailure(now: number): boolean {
+  if (now - lastFailureLogAt < CACHE_DURATION * 1000) {
+    return false
+  }
+
+  lastFailureLogAt = now
+  return true
+}
 
 export async function GET() {
-  try {
-    const now = Date.now()
+  const now = Date.now()
 
+  try {
     // Return cached value if still fresh
     if (cachedStars !== null && now - lastFetch < CACHE_DURATION * 1000) {
       return NextResponse.json({ stars: cachedStars })
@@ -33,8 +43,10 @@ export async function GET() {
     lastFetch = now
 
     return NextResponse.json({ stars: cachedStars })
-  } catch (error) {
-    console.error('Error fetching GitHub stars:', error)
+  } catch {
+    if (shouldLogGitHubStarsFailure(now)) {
+      console.warn('GitHub stars unavailable')
+    }
     // Return cached value or fallback
     return NextResponse.json({ stars: cachedStars || 1200 })
   }

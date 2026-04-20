@@ -1,5 +1,9 @@
-import { nanoid } from 'nanoid'
+import { customAlphabet } from 'nanoid'
 
-export function generateId(length: number = 12): string {
-  return nanoid(length)
+export const ID_ALPHABET = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+
+const DEFAULT_ID_LENGTH = 12
+
+export function generateId(length: number = DEFAULT_ID_LENGTH): string {
+  return customAlphabet(ID_ALPHABET, length)()
 }

@@ -3,8 +3,8 @@ import { getSessionFromReq } from '@/lib/session/server'
 import { db } from '@/lib/db/client'
 import { keys } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
-import { nanoid } from 'nanoid'
 import { encrypt } from '@/lib/crypto'
+import { generateId } from '@/lib/utils/id'
 
 type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway' | 'aiproxy'
 
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
       // Insert new
       await db.insert(keys).values({
         baseUrl: provider === 'aiproxy' ? baseUrl : null,
-        id: nanoid(),
+        id: generateId(21),
         userId: session.user.id,
         provider,
         value: encryptedKey,

@@ -36,6 +36,7 @@ Key task flow logs may include selected dynamic values, but only when all of the
 
 Examples of allowed dynamic values:
 - `sessionId`
+- `threadId`
 - `runtimeName`
 - `runtimeState`
 - `selectedModel`

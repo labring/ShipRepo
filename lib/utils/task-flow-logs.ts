@@ -21,6 +21,7 @@ const KEY_TASK_LOG_METADATA_KEYS = [
   'runtimeName',
   'runtimeState',
   'sessionId',
+  'threadId',
   'selectedModel',
   'transcriptCursor',
   'turnStatus',
