@@ -1,9 +1,14 @@
 import type { DevboxInfo } from '@/lib/devbox/types'
 
 const DEFAULT_CODEX_GATEWAY_PORT = '1317'
+const DEFAULT_CODEX_GATEWAY_SESSION_TTL_MS = '14400000'
 
 export function getCodexGatewayPort(): string {
   return process.env.CODEX_GATEWAY_PORT || DEFAULT_CODEX_GATEWAY_PORT
+}
+
+export function getCodexGatewaySessionTtlMs(): string {
+  return process.env.CODEX_GATEWAY_SESSION_TTL_MS || DEFAULT_CODEX_GATEWAY_SESSION_TTL_MS
 }
 
 export function getCodexGatewayUrlTemplate(): string | null {

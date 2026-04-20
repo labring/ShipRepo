@@ -4,7 +4,7 @@ import { buildForcedCodexConfigToml, FORCED_CODEX_HOME, FORCED_CODEX_MODEL } fro
 import { db } from '@/lib/db/client'
 import { Task, tasks } from '@/lib/db/schema'
 import { getUserApiKeys, resolveCodexGatewayFromApiKeys, type GatewayConfig } from '@/lib/api-keys/user-keys'
-import { resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
+import { getCodexGatewaySessionTtlMs, resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
 import {
   createDevbox,
   DevboxApiError,
@@ -487,6 +487,7 @@ export async function ensureTaskDevboxRuntime(
     CODEX_GATEWAY_PORT: '1317',
     CODEX_GATEWAY_MODEL: FORCED_CODEX_MODEL,
     CODEX_GATEWAY_CODEX_HOME: FORCED_CODEX_HOME,
+    CODEX_GATEWAY_SESSION_TTL_MS: getCodexGatewaySessionTtlMs(),
   }
 
   if (task.repoUrl) {

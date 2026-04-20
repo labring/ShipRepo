@@ -3,7 +3,7 @@ import { SignJWT } from 'jose'
 const DEFAULT_DEVBOX_BASE_URL = 'https://devbox-server.staging-usw-1.sealos.io'
 const DEVBOX_API_PREFIX = '/api/v1/devbox'
 const DEFAULT_DEVBOX_NAMESPACE = 'ns-test'
-const DEFAULT_DEVBOX_TOKEN_TTL_SECONDS = 60 * 60
+const DEFAULT_DEVBOX_TOKEN_TTL_SECONDS = 4 * 60 * 60
 const DNS_1123_LABEL_REGEX = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
 
 function getRequiredEnv(name: string): string {
