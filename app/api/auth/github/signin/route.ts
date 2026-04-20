@@ -1,7 +1,7 @@
 import { type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { getSessionFromReq } from '@/lib/session/server'
-import { getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
+import { GITHUB_OAUTH_SCOPE, getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { generateState } from 'arctic'
 
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: 'repo,read:user,user:email',
+    scope: GITHUB_OAUTH_SCOPE,
     state: state,
   })
 
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
-    scope: 'repo,read:user,user:email',
+    scope: GITHUB_OAUTH_SCOPE,
     state: state,
   })
 

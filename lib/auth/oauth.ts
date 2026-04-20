@@ -1,5 +1,9 @@
 import { type NextRequest } from 'next/server'
 
+export const GITHUB_OAUTH_SCOPES = ['repo', 'read:user', 'user:email', 'read:packages', 'write:packages'] as const
+
+export const GITHUB_OAUTH_SCOPE = GITHUB_OAUTH_SCOPES.join(',')
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '')
 }

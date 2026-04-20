@@ -1,10 +1,19 @@
+import { createHash } from 'node:crypto'
 import { eq } from 'drizzle-orm'
 import { buildForcedCodexConfigToml, FORCED_CODEX_HOME, FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import { db } from '@/lib/db/client'
 import { Task, tasks } from '@/lib/db/schema'
 import { getUserApiKeys, resolveCodexGatewayFromApiKeys, type GatewayConfig } from '@/lib/api-keys/user-keys'
 import { resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
-import { createDevbox, DevboxApiError, execDevbox, getDevbox, listDevboxes } from '@/lib/devbox/client'
+import {
+  createDevbox,
+  DevboxApiError,
+  execDevbox,
+  getDevbox,
+  listDevboxes,
+  refreshDevboxPause,
+  resumeDevbox,
+} from '@/lib/devbox/client'
 import { getDevboxArchiveAfterPauseTime, getDevboxDefaultImage, getDevboxNamespace } from '@/lib/devbox/config'
 import { createTaskDevboxName } from '@/lib/devbox/naming'
 import type { DevboxInfo, DevboxSshInfo } from '@/lib/devbox/types'
@@ -41,6 +50,8 @@ const DEVBOX_SEAKILLS_INSTALL_COMMAND =
 const DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS = 60_000
 const DEVBOX_BOOTSTRAP_READY_POLL_MS = 2_000
 const DEVBOX_SKILL_INSTALL_MARKER = '__CODEX_SKILL_INSTALLED__:1'
+const DEVBOX_RUNTIME_READY_TIMEOUT_MS = 60_000
+const DEVBOX_RUNTIME_READY_POLL_MS = 2_000
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -53,6 +64,12 @@ function shellEscape(value: string): string {
 function getPauseAt(maxDurationMinutes: number | null): string {
   const durationMinutes = maxDurationMinutes || 300
   return new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
+}
+
+export function buildTaskWorkspaceFingerprint(task: Pick<Task, 'repoUrl' | 'branchName'>, runtimeName: string): string {
+  return createHash('sha256')
+    .update([runtimeName, task.repoUrl?.trim() || '', task.branchName?.trim() || ''].join('|'))
+    .digest('hex')
 }
 
 function sanitizeSshInfo(ssh?: DevboxSshInfo) {
@@ -88,7 +105,7 @@ function buildTaskRuntimeSummary(
   }
 }
 
-async function clearMissingTaskRuntime(taskId: string) {
+export async function clearMissingTaskRuntime(taskId: string) {
   await db
     .update(tasks)
     .set({
@@ -96,11 +113,108 @@ async function clearMissingTaskRuntime(taskId: string) {
       runtimeName: null,
       runtimeNamespace: null,
       runtimeState: null,
+      workspacePreparedAt: null,
+      workspaceFingerprint: null,
+      runtimeCheckedAt: null,
+      gatewayReadyAt: null,
       gatewayUrl: null,
       gatewaySessionId: null,
       updatedAt: new Date(),
     })
     .where(eq(tasks.id, taskId))
+}
+
+async function refreshRuntimeLease(task: Pick<Task, 'id' | 'maxDuration' | 'runtimeName'>): Promise<void> {
+  if (!task.runtimeName) {
+    return
+  }
+
+  try {
+    await refreshDevboxPause(task.runtimeName, {
+      pauseAt: getPauseAt(task.maxDuration),
+    })
+  } catch (error) {
+    if (!(error instanceof DevboxApiError && error.status === 404)) {
+      throw error
+    }
+
+    await clearMissingTaskRuntime(task.id)
+  }
+}
+
+async function waitForRunningDevbox(runtimeName: string): Promise<DevboxInfo> {
+  const startedAt = Date.now()
+
+  while (Date.now() - startedAt < DEVBOX_RUNTIME_READY_TIMEOUT_MS) {
+    const response = await getDevbox(runtimeName)
+
+    if (response.data.state.phase === 'Running') {
+      return response.data
+    }
+
+    await sleep(DEVBOX_RUNTIME_READY_POLL_MS)
+  }
+
+  throw new Error('Timed out waiting for Devbox runtime')
+}
+
+async function ensureRunningDevbox(task: Task, runtimeName: string): Promise<DevboxInfo> {
+  const response = await getDevbox(runtimeName)
+
+  if (response.data.state.phase === 'Running') {
+    return response.data
+  }
+
+  try {
+    await resumeDevbox(runtimeName)
+  } catch (error) {
+    if (!(error instanceof DevboxApiError && error.status === 409)) {
+      throw error
+    }
+  }
+
+  const runtime = await waitForRunningDevbox(runtimeName)
+  await refreshRuntimeLease({
+    id: task.id,
+    runtimeName,
+    maxDuration: task.maxDuration,
+  })
+
+  return runtime
+}
+
+async function syncTaskRuntimeState(
+  task: Task,
+  runtimeName: string,
+  runtimeNamespace: string | null,
+  gatewayUrl: string | null,
+  runtimeInfo: DevboxInfo,
+  workspacePrepared: boolean,
+): Promise<void> {
+  const nextWorkspaceFingerprint = buildTaskWorkspaceFingerprint(task, runtimeName)
+
+  await db
+    .update(tasks)
+    .set({
+      runtimeProvider: 'devbox',
+      runtimeName,
+      runtimeNamespace,
+      runtimeState: runtimeInfo.state.phase,
+      workspacePreparedAt: workspacePrepared ? new Date() : task.workspacePreparedAt,
+      workspaceFingerprint: workspacePrepared ? nextWorkspaceFingerprint : task.workspaceFingerprint,
+      runtimeCheckedAt: new Date(),
+      gatewayUrl,
+      updatedAt: new Date(),
+    })
+    .where(eq(tasks.id, task.id))
+}
+
+function shouldBootstrapWorkspace(task: Task, runtimeName: string): boolean {
+  if (!task.workspacePreparedAt) {
+    return true
+  }
+
+  return task.workspaceFingerprint !== buildTaskWorkspaceFingerprint(task, runtimeName)
 }
 
 async function ensureTaskWorkspaceBootstrapped(
@@ -152,6 +266,25 @@ ${managedCodexConfigToml}EOF`,
       '  cp -a "$tmpdir/repo"/. .',
       'fi',
     )
+
+    if (branchName) {
+      bootstrapScript.push(
+        'if [ -d .git ]; then',
+        `  target_branch=${shellEscape(branchName)}`,
+        '  current_branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"',
+        '  if [ "$current_branch" != "$target_branch" ]; then',
+        '    if git show-ref --verify --quiet "refs/heads/$target_branch"; then',
+        '      git checkout "$target_branch"',
+        '    elif git ls-remote --exit-code --heads origin "$target_branch" >/dev/null 2>&1; then',
+        '      git fetch --depth 1 origin "$target_branch:$target_branch"',
+        '      git checkout "$target_branch"',
+        '    else',
+        '      git checkout -B "$target_branch"',
+        '    fi',
+        '  fi',
+        'fi',
+      )
+    }
   }
 
   bootstrapScript.push(
@@ -230,30 +363,26 @@ export async function ensureTaskDevboxRuntime(
 
   if (task.runtimeName) {
     try {
-      const existingRuntime = await getDevbox(task.runtimeName)
+      const existingRuntime = await ensureRunningDevbox(task, task.runtimeName)
       const runtimeNamespace = task.runtimeNamespace || getDevboxNamespace()
-      const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, existingRuntime.data)
+      const gatewayUrl = resolveCodexGatewayUrl(task.runtimeName, task.gatewayUrl, existingRuntime)
+      const needsWorkspaceBootstrap = shouldBootstrapWorkspace(task, task.runtimeName)
 
-      const bootstrapResult = await ensureTaskWorkspaceBootstrapped(task, task.runtimeName, githubToken, logger)
+      if (needsWorkspaceBootstrap) {
+        await ensureTaskWorkspaceBootstrapped(task, task.runtimeName, githubToken, logger)
+      }
 
-      await db
-        .update(tasks)
-        .set({
-          runtimeProvider: 'devbox',
-          runtimeName: task.runtimeName,
-          runtimeNamespace,
-          runtimeState: existingRuntime.data.state.phase,
-          gatewayUrl,
-          updatedAt: new Date(),
-        })
-        .where(eq(tasks.id, task.id))
-
-      const runtimeSummary = buildTaskRuntimeSummary(
+      await refreshRuntimeLease(task)
+      await syncTaskRuntimeState(
+        task,
         task.runtimeName,
         runtimeNamespace,
         gatewayUrl,
-        existingRuntime.data,
+        existingRuntime,
+        needsWorkspaceBootstrap,
       )
+
+      const runtimeSummary = buildTaskRuntimeSummary(task.runtimeName, runtimeNamespace, gatewayUrl, existingRuntime)
 
       console.info('Devbox runtime info available')
 
@@ -272,21 +401,27 @@ export async function ensureTaskDevboxRuntime(
 
   if (existingDevbox) {
     const runtimeNamespace = getDevboxNamespace()
-    const gatewayUrl = resolveCodexGatewayUrl(existingDevbox.name, task.gatewayUrl)
+    const runtimeInfo = await ensureRunningDevbox(task, existingDevbox.name)
+    const gatewayUrl = resolveCodexGatewayUrl(existingDevbox.name, task.gatewayUrl, runtimeInfo)
+    const needsWorkspaceBootstrap = shouldBootstrapWorkspace(task, existingDevbox.name)
 
-    const bootstrapResult = await ensureTaskWorkspaceBootstrapped(task, existingDevbox.name, githubToken, logger)
+    if (needsWorkspaceBootstrap) {
+      await ensureTaskWorkspaceBootstrapped(task, existingDevbox.name, githubToken, logger)
+    }
 
-    await db
-      .update(tasks)
-      .set({
-        runtimeProvider: 'devbox',
-        runtimeName: existingDevbox.name,
-        runtimeNamespace,
-        runtimeState: existingDevbox.state.phase,
-        gatewayUrl,
-        updatedAt: new Date(),
-      })
-      .where(eq(tasks.id, task.id))
+    await refreshRuntimeLease({
+      id: task.id,
+      runtimeName: existingDevbox.name,
+      maxDuration: task.maxDuration,
+    })
+    await syncTaskRuntimeState(
+      task,
+      existingDevbox.name,
+      runtimeNamespace,
+      gatewayUrl,
+      runtimeInfo,
+      needsWorkspaceBootstrap,
+    )
 
     await logger?.success('Linked existing Devbox runtime')
 
@@ -295,10 +430,10 @@ export async function ensureTaskDevboxRuntime(
       name: existingDevbox.name,
       namespace: runtimeNamespace,
       gatewayUrl,
-      state: existingDevbox.state.phase,
-      creationTimestamp: existingDevbox.creationTimestamp,
-      deletionTimestamp: existingDevbox.deletionTimestamp,
-      ssh: null,
+      state: runtimeInfo.state.phase,
+      creationTimestamp: runtimeInfo.creationTimestamp,
+      deletionTimestamp: runtimeInfo.deletionTimestamp,
+      ssh: sanitizeSshInfo(runtimeInfo.ssh),
     }
 
     console.info('Devbox runtime info available')
@@ -355,32 +490,27 @@ export async function ensureTaskDevboxRuntime(
   })
 
   const infoResponse = await getDevbox(runtimeName)
-  const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl, infoResponse.data)
+  const runtimeInfo =
+    infoResponse.data.state.phase === 'Running' ? infoResponse.data : await ensureRunningDevbox(task, runtimeName)
+  const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl, runtimeInfo)
 
-  const bootstrapResult = await ensureTaskWorkspaceBootstrapped(task, runtimeName, githubToken, logger)
-
-  await db
-    .update(tasks)
-    .set({
-      runtimeProvider: 'devbox',
-      runtimeName,
-      runtimeNamespace: createResponse.data.namespace,
-      runtimeState: infoResponse.data.state.phase,
-      gatewayUrl,
-      updatedAt: new Date(),
-    })
-    .where(eq(tasks.id, task.id))
+  await ensureTaskWorkspaceBootstrapped(task, runtimeName, githubToken, logger)
+  await refreshRuntimeLease({
+    id: task.id,
+    runtimeName,
+    maxDuration: task.maxDuration,
+  })
+  await syncTaskRuntimeState(task, runtimeName, createResponse.data.namespace, gatewayUrl, runtimeInfo, true)
 
   await logger?.success('Devbox runtime created')
 
-  const runtimeSummary = buildTaskRuntimeSummary(
-    runtimeName,
-    createResponse.data.namespace,
-    gatewayUrl,
-    infoResponse.data,
-  )
+  const runtimeSummary = buildTaskRuntimeSummary(runtimeName, createResponse.data.namespace, gatewayUrl, runtimeInfo)
 
   console.info('Devbox runtime info available')
 
   return runtimeSummary
+}
+
+export async function refreshTaskDevboxLease(task: Pick<Task, 'id' | 'maxDuration' | 'runtimeName'>): Promise<void> {
+  await refreshRuntimeLease(task)
 }

@@ -6,6 +6,7 @@ import { createTaskLogger } from '@/lib/utils/task-logger'
 import { killSandbox } from '@/lib/sandbox/sandbox-registry'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { CodexGatewayApiError, deleteCodexGatewaySession } from '@/lib/codex-gateway/client'
+import { hasActiveTurnCheckpoint, reconcileIncompleteTurn } from '@/lib/codex-gateway/completion'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 
 interface RouteParams {
@@ -32,7 +33,17 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ task: task[0] })
+    let currentTask = task[0]
+
+    if (currentTask.selectedAgent === 'codex' && hasActiveTurnCheckpoint(currentTask)) {
+      try {
+        currentTask = (await reconcileIncompleteTurn(currentTask.id)) || currentTask
+      } catch {
+        console.error('Failed to reconcile incomplete Codex turn')
+      }
+    }
+
+    return NextResponse.json({ task: currentTask })
   } catch (error) {
     console.error('Error fetching task:', error)
     return NextResponse.json({ error: 'Failed to fetch task' }, { status: 500 })
@@ -94,6 +105,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
             status: 'stopped',
             error: 'Task was stopped by user',
             gatewaySessionId: null,
+            activeTurnSessionId: null,
+            activeTurnStartedAt: null,
+            activeTurnTranscriptCursor: null,
+            turnCompletionState: 'failed',
+            turnCompletionCheckedAt: new Date(),
             updatedAt: new Date(),
             completedAt: new Date(),
           })

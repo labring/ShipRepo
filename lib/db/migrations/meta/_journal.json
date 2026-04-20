@@ -169,6 +169,20 @@
       "when": 1776240342339,
       "tag": "0023_fantastic_doctor_strange",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1776605437717,
+      "tag": "0024_worried_richard_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1776607079323,
+      "tag": "0025_spicy_karen_page",
+      "breakpoints": true
     }
   ]
 }

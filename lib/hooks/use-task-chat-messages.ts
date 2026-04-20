@@ -13,12 +13,26 @@ import {
   reconcileOptimisticMessages,
 } from '@/lib/task-chat'
 
-interface GatewaySessionRouteResponse {
+interface ChatRuntimeRouteResponse {
   success: boolean
   data?: {
+    runtime: {
+      status: Task['status']
+      runtimeName: Task['runtimeName']
+      runtimeState: Task['runtimeState']
+      workspacePreparedAt: Task['workspacePreparedAt']
+      runtimeCheckedAt: Task['runtimeCheckedAt']
+      gatewayReadyAt: Task['gatewayReadyAt']
+      gatewaySessionId: string | null
+      turnCompletionState: Task['turnCompletionState']
+    }
     session: {
       sessionId: string
       state: CodexGatewayState
+    } | null
+    stream: {
+      streamTicket: string
+      streamUrl: string
     } | null
   }
   error?: string
@@ -29,8 +43,45 @@ interface ChatActionResult {
   error?: string
 }
 
+interface ChatTurnRouteResponse {
+  success: boolean
+  data?: {
+    session?: {
+      sessionId: string
+    }
+    stream?: {
+      streamTicket: string
+      streamUrl: string
+    }
+    turn?: {
+      transcriptCursor: number
+      turnAccepted: boolean
+      turnStartedAt: string
+      streamUrl: string
+    }
+  }
+  error?: string
+}
+
 function isTaskProcessing(status: Task['status']): boolean {
   return status === 'processing' || status === 'pending'
+}
+
+function shouldPrewarmGatewayTask(task: Task, gatewaySessionId: string | null): boolean {
+  if (task.selectedAgent !== 'codex' || gatewaySessionId) {
+    return false
+  }
+
+  if (
+    task.activeTurnSessionId &&
+    task.turnCompletionState &&
+    task.turnCompletionState !== 'completed' &&
+    task.turnCompletionState !== 'failed'
+  ) {
+    return false
+  }
+
+  return !task.runtimeName || task.runtimeState !== 'Running' || !task.workspacePreparedAt || !task.gatewaySessionId
 }
 
 export function useTaskChatMessages(taskId: string, task: Task) {
@@ -39,6 +90,7 @@ export function useTaskChatMessages(taskId: string, task: Task) {
   const [gatewayState, setGatewayState] = useState<CodexGatewayState | null>(null)
   const [retainedStreamingMessage, setRetainedStreamingMessage] = useState<TaskMessage | null>(null)
   const [gatewaySessionId, setGatewaySessionId] = useState<string | null>(task.gatewaySessionId)
+  const [gatewayStreamUrl, setGatewayStreamUrl] = useState<string | null>(null)
   const [gatewayTurnPending, setGatewayTurnPending] = useState(
     task.selectedAgent === 'codex' && isTaskProcessing(task.status),
   )
@@ -47,10 +99,33 @@ export function useTaskChatMessages(taskId: string, task: Task) {
   const [isSending, setIsSending] = useState(false)
   const [isStopping, setIsStopping] = useState(false)
   const gatewayEventSourceRef = useRef<EventSource | null>(null)
+  const gatewayReconnectTimeoutRef = useRef<number | null>(null)
+  const gatewayReconnectAttemptRef = useRef(0)
   const lastTaskUpdateRef = useRef<string | null>(null)
+  const lastPrewarmTokenRef = useRef<string | null>(null)
   const persistedMessagesRef = useRef<TaskMessage[]>([])
   const retainedStreamingContentRef = useRef<string | null>(null)
   const isGatewayTask = task.selectedAgent === 'codex'
+
+  const applyGatewayRuntimeSnapshot = useCallback((data?: ChatRuntimeRouteResponse['data']) => {
+    if (!data) {
+      return false
+    }
+
+    startTransition(() => {
+      setGatewaySessionId(data.session?.sessionId || data.runtime.gatewaySessionId || null)
+      setGatewayState(data.session?.state || null)
+      setGatewayStreamUrl(data.stream?.streamUrl || null)
+
+      if (data.session?.state.activeTurn) {
+        setGatewayTurnPending(true)
+      } else if (!isTaskProcessing(data.runtime.status)) {
+        setGatewayTurnPending(false)
+      }
+    })
+
+    return Boolean(data.session)
+  }, [])
 
   useEffect(() => {
     persistedMessagesRef.current = persistedMessages
@@ -60,6 +135,13 @@ export function useTaskChatMessages(taskId: string, task: Task) {
     // Keep the latest streamed content available to SSE callbacks without recreating the connection.
     retainedStreamingContentRef.current = retainedStreamingMessage?.content?.trim() || null
   }, [retainedStreamingMessage])
+
+  const clearGatewayReconnectTimer = useCallback(() => {
+    if (gatewayReconnectTimeoutRef.current !== null) {
+      window.clearTimeout(gatewayReconnectTimeoutRef.current)
+      gatewayReconnectTimeoutRef.current = null
+    }
+  }, [])
 
   const refreshMessages = useCallback(
     async (showLoading = true): Promise<boolean> => {
@@ -136,13 +218,13 @@ export function useTaskChatMessages(taskId: string, task: Task) {
     [refreshMessages],
   )
 
-  const refreshGatewaySession = useCallback(async (): Promise<boolean> => {
+  const refreshChatRuntime = useCallback(async (): Promise<boolean> => {
     if (!isGatewayTask) {
       return false
     }
 
     try {
-      const response = await fetch(`/api/tasks/${taskId}/gateway/session`, {
+      const response = await fetch(`/api/tasks/${taskId}/chat/runtime`, {
         cache: 'no-store',
       })
 
@@ -150,35 +232,67 @@ export function useTaskChatMessages(taskId: string, task: Task) {
         return false
       }
 
-      const data = (await response.json()) as GatewaySessionRouteResponse
-      const sessionData = data.data?.session
-      if (!sessionData) {
-        return false
-      }
-
-      startTransition(() => {
-        setGatewaySessionId(sessionData.sessionId)
-        setGatewayState(sessionData.state)
-      })
-
-      return true
+      const data = (await response.json()) as ChatRuntimeRouteResponse
+      return applyGatewayRuntimeSnapshot(data.data)
     } catch {
       return false
     }
-  }, [isGatewayTask, taskId])
+  }, [applyGatewayRuntimeSnapshot, isGatewayTask, taskId])
+
+  const prewarmChatRuntime = useCallback(async (): Promise<boolean> => {
+    if (!isGatewayTask) {
+      return false
+    }
+
+    try {
+      const response = await fetch(`/api/tasks/${taskId}/chat/prewarm`, {
+        method: 'POST',
+      })
+
+      if (!response.ok) {
+        return false
+      }
+
+      const data = (await response.json()) as ChatRuntimeRouteResponse
+      return applyGatewayRuntimeSnapshot(data.data)
+    } catch {
+      return false
+    }
+  }, [applyGatewayRuntimeSnapshot, isGatewayTask, taskId])
 
   useEffect(() => {
     void refreshMessages(true)
   }, [refreshMessages])
 
   useEffect(() => {
-    setGatewaySessionId(task.gatewaySessionId)
-  }, [task.gatewaySessionId])
+    return () => {
+      clearGatewayReconnectTimer()
+    }
+  }, [clearGatewayReconnectTimer])
+
+  useEffect(() => {
+    if (!isGatewayTask) {
+      setGatewaySessionId(null)
+      setGatewayStreamUrl(null)
+      return
+    }
+
+    if (task.gatewaySessionId) {
+      setGatewaySessionId((previousSessionId) => previousSessionId || task.gatewaySessionId)
+      return
+    }
+
+    if (!isTaskProcessing(task.status)) {
+      setGatewaySessionId(null)
+      setGatewayStreamUrl(null)
+    }
+  }, [isGatewayTask, task.gatewaySessionId, task.status])
 
   useEffect(() => {
     if (!isGatewayTask) {
       setGatewayTurnPending(false)
       setGatewaySessionId(null)
+      setGatewayStreamUrl(null)
       setGatewayState(null)
       return
     }
@@ -210,35 +324,35 @@ export function useTaskChatMessages(taskId: string, task: Task) {
   }, [gatewayState?.activeTurn, gatewayTurnPending, refreshMessages, task.updatedAt])
 
   useEffect(() => {
-    if (!isGatewayTask || gatewaySessionId || (!isTaskProcessing(task.status) && !gatewayTurnPending)) {
+    if (!isGatewayTask) {
       return
     }
 
-    let cancelled = false
+    if (gatewaySessionId || gatewayTurnPending || task.gatewaySessionId) {
+      void refreshChatRuntime()
+    }
+  }, [gatewaySessionId, gatewayTurnPending, isGatewayTask, refreshChatRuntime, task.gatewaySessionId])
 
-    const pollGatewaySession = async () => {
-      const found = await refreshGatewaySession()
-      if (found || cancelled) {
-        return
-      }
+  useEffect(() => {
+    const prewarmToken = [
+      task.runtimeName || '',
+      task.runtimeState || '',
+      task.workspacePreparedAt ? new Date(task.workspacePreparedAt).toISOString() : '',
+      task.gatewaySessionId || '',
+      gatewaySessionId || '',
+    ].join('|')
 
-      window.setTimeout(() => {
-        if (!cancelled) {
-          void pollGatewaySession()
-        }
-      }, 500)
+    if (!shouldPrewarmGatewayTask(task, gatewaySessionId) || lastPrewarmTokenRef.current === prewarmToken) {
+      return
     }
 
-    void pollGatewaySession()
-
-    return () => {
-      cancelled = true
-    }
-  }, [gatewaySessionId, gatewayTurnPending, isGatewayTask, refreshGatewaySession, task.status])
+    lastPrewarmTokenRef.current = prewarmToken
+    void prewarmChatRuntime()
+  }, [gatewaySessionId, prewarmChatRuntime, task])
 
   useEffect(() => {
     const shouldConnect =
-      isGatewayTask && Boolean(gatewaySessionId) && (isTaskProcessing(task.status) || gatewayTurnPending)
+      isGatewayTask && Boolean(gatewayStreamUrl) && (isTaskProcessing(task.status) || gatewayTurnPending)
 
     if (!shouldConnect) {
       gatewayEventSourceRef.current?.close()
@@ -246,8 +360,12 @@ export function useTaskChatMessages(taskId: string, task: Task) {
       return
     }
 
-    const source = new EventSource(`/api/tasks/${taskId}/gateway/events`)
+    const source = new EventSource(gatewayStreamUrl!)
     gatewayEventSourceRef.current = source
+    source.onopen = () => {
+      clearGatewayReconnectTimer()
+      gatewayReconnectAttemptRef.current = 0
+    }
 
     source.addEventListener('state', (event) => {
       const nextState = JSON.parse(event.data) as CodexGatewayState
@@ -270,7 +388,10 @@ export function useTaskChatMessages(taskId: string, task: Task) {
       })
 
       if (!nextState.activeTurn && nextState.lastTurnStatus) {
+        clearGatewayReconnectTimer()
+        gatewayReconnectAttemptRef.current = 0
         setGatewayTurnPending(false)
+        setGatewayStreamUrl(null)
         source.close()
 
         if (gatewayEventSourceRef.current === source) {
@@ -282,9 +403,12 @@ export function useTaskChatMessages(taskId: string, task: Task) {
     })
 
     source.addEventListener('session-closed', () => {
+      clearGatewayReconnectTimer()
+      gatewayReconnectAttemptRef.current = 0
       startTransition(() => {
         setGatewayTurnPending(false)
         setGatewaySessionId(null)
+        setGatewayStreamUrl(null)
       })
 
       source.close()
@@ -297,19 +421,54 @@ export function useTaskChatMessages(taskId: string, task: Task) {
     })
 
     source.onerror = () => {
-      if (source.readyState === EventSource.CLOSED && gatewayEventSourceRef.current === source) {
+      if (gatewayEventSourceRef.current !== source) {
+        return
+      }
+
+      if (!isTaskProcessing(task.status) && !gatewayTurnPending) {
+        if (source.readyState === EventSource.CLOSED) {
+          gatewayEventSourceRef.current = null
+        }
+
+        return
+      }
+
+      clearGatewayReconnectTimer()
+      source.close()
+
+      if (gatewayEventSourceRef.current === source) {
         gatewayEventSourceRef.current = null
       }
+
+      const nextAttempt = gatewayReconnectAttemptRef.current + 1
+      gatewayReconnectAttemptRef.current = nextAttempt
+      const reconnectDelayMs = Math.min(1000 * nextAttempt, 5000)
+
+      gatewayReconnectTimeoutRef.current = window.setTimeout(() => {
+        gatewayReconnectTimeoutRef.current = null
+        void refreshChatRuntime()
+      }, reconnectDelayMs)
     }
 
     return () => {
+      clearGatewayReconnectTimer()
       source.close()
 
       if (gatewayEventSourceRef.current === source) {
         gatewayEventSourceRef.current = null
       }
     }
-  }, [gatewaySessionId, gatewayTurnPending, isGatewayTask, refreshMessages, syncFinalMessages, task.status, taskId])
+  }, [
+    clearGatewayReconnectTimer,
+    gatewayStreamUrl,
+    gatewayTurnPending,
+    isGatewayTask,
+    refreshMessages,
+    refreshChatRuntime,
+    syncFinalMessages,
+    task.status,
+    taskId,
+  ])
 
   const sendMessage = useCallback(
     async (content: string): Promise<ChatActionResult> => {
@@ -326,17 +485,20 @@ export function useTaskChatMessages(taskId: string, task: Task) {
       setIsSending(true)
 
       try {
-        const response = await fetch(`/api/tasks/${taskId}/continue`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+        const response = await fetch(
+          isGatewayTask ? `/api/tasks/${taskId}/chat/turn` : `/api/tasks/${taskId}/continue`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              ...(isGatewayTask ? { prompt: trimmedContent } : { message: trimmedContent }),
+            }),
           },
-          body: JSON.stringify({
-            message: trimmedContent,
-          }),
-        })
+        )
 
-        const data = (await response.json()) as {
+        const data = (await response.json()) as ChatTurnRouteResponse & {
           error?: string
         }
 
@@ -353,12 +515,17 @@ export function useTaskChatMessages(taskId: string, task: Task) {
 
         startTransition(() => {
           setGatewayTurnPending(isGatewayTask)
+
+          if (isGatewayTask) {
+            clearGatewayReconnectTimer()
+            gatewayReconnectAttemptRef.current = 0
+            setGatewaySessionId(data.data?.session?.sessionId || null)
+            setGatewayState(null)
+            setGatewayStreamUrl(data.data?.stream?.streamUrl || data.data?.turn?.streamUrl || null)
+          }
         })
 
         void refreshMessages(false)
-        if (isGatewayTask) {
-          void refreshGatewaySession()
-        }
 
         return {
           success: true,
@@ -375,7 +542,7 @@ export function useTaskChatMessages(taskId: string, task: Task) {
         setIsSending(false)
       }
     },
-    [isGatewayTask, isSending, refreshGatewaySession, refreshMessages, taskId],
+    [clearGatewayReconnectTimer, isGatewayTask, isSending, refreshMessages, taskId],
   )
 
   const retryMessage = useCallback(
@@ -409,8 +576,11 @@ export function useTaskChatMessages(taskId: string, task: Task) {
       }
 
       startTransition(() => {
+        clearGatewayReconnectTimer()
+        gatewayReconnectAttemptRef.current = 0
         setGatewayTurnPending(false)
         setGatewaySessionId(null)
+        setGatewayStreamUrl(null)
         setGatewayState(null)
       })
       gatewayEventSourceRef.current?.close()
@@ -427,7 +597,7 @@ export function useTaskChatMessages(taskId: string, task: Task) {
     } finally {
       setIsStopping(false)
     }
-  }, [taskId])
+  }, [clearGatewayReconnectTimer, taskId])
 
   const streamingMessage = useMemo(
     () => buildStreamingAgentMessage(taskId, gatewayState, persistedMessages),

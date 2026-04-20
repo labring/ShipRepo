@@ -6,7 +6,7 @@ import { DevboxApiError, deleteDevbox, getDevbox } from '@/lib/devbox/client'
 import { getDevboxNamespace } from '@/lib/devbox/config'
 import type { DevboxInfo, DevboxSshInfo } from '@/lib/devbox/types'
 import { resolveCodexGatewayUrl } from '@/lib/codex-gateway/config'
-import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
+import { clearMissingTaskRuntime, ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 
@@ -14,11 +14,6 @@ interface RouteParams {
   params: Promise<{
     taskId: string
   }>
-}
-
-function getPauseAt(maxDurationMinutes: number | null): string {
-  const durationMinutes = maxDurationMinutes || 300
-  return new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
 }
 
 function sanitizeSshInfo(ssh?: DevboxSshInfo) {
@@ -97,6 +92,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
         .set({
           runtimeState: response.data.state.phase,
           runtimeNamespace,
+          runtimeCheckedAt: new Date(),
           gatewayUrl,
           updatedAt: new Date(),
         })
@@ -110,18 +106,7 @@ export async function GET(_request: Request, { params }: RouteParams) {
       })
     } catch (error) {
       if (error instanceof DevboxApiError && error.status === 404) {
-        await db
-          .update(tasks)
-          .set({
-            runtimeProvider: null,
-            runtimeName: null,
-            runtimeNamespace: null,
-            runtimeState: null,
-            gatewayUrl: null,
-            gatewaySessionId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, taskId))
+        await clearMissingTaskRuntime(taskId)
 
         return NextResponse.json({
           success: true,
@@ -163,6 +148,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
           .update(tasks)
           .set({
             gatewayUrl,
+            runtimeCheckedAt: new Date(),
             updatedAt: new Date(),
           })
           .where(eq(tasks.id, taskId))
@@ -178,18 +164,7 @@ export async function POST(_request: Request, { params }: RouteParams) {
           throw error
         }
 
-        await db
-          .update(tasks)
-          .set({
-            runtimeProvider: null,
-            runtimeName: null,
-            runtimeNamespace: null,
-            runtimeState: null,
-            gatewayUrl: null,
-            gatewaySessionId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, taskId))
+        await clearMissingTaskRuntime(taskId)
       }
     }
     const logger = createTaskLogger(taskId)
@@ -254,6 +229,10 @@ export async function DELETE(_request: Request, { params }: RouteParams) {
         runtimeName: null,
         runtimeNamespace: null,
         runtimeState: null,
+        workspacePreparedAt: null,
+        workspaceFingerprint: null,
+        runtimeCheckedAt: null,
+        gatewayReadyAt: null,
         gatewayUrl: null,
         gatewaySessionId: null,
         updatedAt: new Date(),

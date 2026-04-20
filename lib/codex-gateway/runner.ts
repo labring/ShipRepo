@@ -1,18 +1,20 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import { FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
+import { CodexGatewayApiError, getCodexGatewaySessionState, sendCodexGatewayTurn } from '@/lib/codex-gateway/client'
 import {
-  CodexGatewayApiError,
-  createCodexGatewaySession,
-  deleteCodexGatewaySession,
-  getCodexGatewaySessionState,
-  sendCodexGatewayTurn,
-  waitForCodexGatewayReady,
-} from '@/lib/codex-gateway/client'
-import { getTaskGatewayContextById, normalizeCodexGatewayModel } from '@/lib/codex-gateway/task'
+  finalizeTurnCompletion,
+  getAssistantContentAfterCursor,
+  markTurnCompletionRunning,
+  recordTurnCheckpoint,
+} from '@/lib/codex-gateway/completion'
+import { ensureCodexGatewaySession } from '@/lib/codex-gateway/session'
+import { getTaskGatewayContextById } from '@/lib/codex-gateway/task'
 import { db } from '@/lib/db/client'
 import { taskMessages, tasks } from '@/lib/db/schema'
+import { refreshTaskDevboxLease } from '@/lib/devbox/runtime'
 import { generateId } from '@/lib/utils/id'
 import { createTaskLogger } from '@/lib/utils/task-logger'
+import type { CodexGatewaySessionResponse } from '@/lib/codex-gateway/types'
 
 interface StartCodexGatewayTurnOptions {
   appendUserMessage?: boolean
@@ -23,6 +25,7 @@ export interface StartedCodexGatewayTurn {
   gatewayAuthToken: string | null
   gatewayUrl: string
   sessionId: string
+  startedAt: Date
   taskId: string
   transcriptCursor: number
 }
@@ -39,46 +42,23 @@ function getGatewayWaitTimeoutMs(maxDuration: number | null | undefined): number
   return Math.min(maxDuration, 30) * 60 * 1000
 }
 
-function getAssistantContentAfterCursor(
-  transcriptCursor: number,
-  transcript: { role: string; text: string }[],
-): string {
-  const assistantMessages = transcript
-    .slice(transcriptCursor)
-    .filter((entry) => entry.role === 'assistant')
-    .map((entry) => entry.text.trim())
-    .filter(Boolean)
-
-  return assistantMessages.join('\n\n').trim()
-}
-
-async function persistAssistantMessage(taskId: string, content: string): Promise<void> {
-  const trimmedContent = content.trim()
-  if (!trimmedContent) {
-    return
-  }
-
-  const [latestPersistedAgentMessage] = await db
-    .select({ content: taskMessages.content })
-    .from(taskMessages)
-    .where(and(eq(taskMessages.taskId, taskId), eq(taskMessages.role, 'agent')))
-    .orderBy(desc(taskMessages.createdAt))
-    .limit(1)
-
-  if (latestPersistedAgentMessage?.content.trim() === trimmedContent) {
-    return
-  }
-
-  await db.insert(taskMessages).values({
-    id: generateId(12),
-    taskId,
-    role: 'agent',
-    content: trimmedContent,
-  })
-}
-
 function isSuccessfulTurnStatus(status: string | null | undefined): boolean {
   return status === 'completed' || status === 'succeeded'
+}
+
+function getTurnTranscriptCursor(
+  transcript: {
+    role: string
+    text: string
+  }[],
+): number {
+  for (let index = transcript.length - 1; index >= 0; index -= 1) {
+    if (transcript[index]?.role === 'user') {
+      return index
+    }
+  }
+
+  return transcript.length
 }
 
 export async function startCodexGatewayTaskTurn(
@@ -115,92 +95,82 @@ export async function startCodexGatewayTaskTurn(
       content: prompt,
     })
   }
-
-  const normalizedModel = normalizeCodexGatewayModel(FORCED_CODEX_MODEL)
-
   let gatewaySessionId = task.gatewaySessionId
-  let transcriptCursor = 0
-
-  if (gatewaySessionId) {
-    try {
-      const existingState = await getCodexGatewaySessionState(gatewayUrl, gatewaySessionId, gatewayAuthToken)
-      const existingModel = normalizeCodexGatewayModel(existingState.state.selectedModel)
-
-      if (existingModel && normalizedModel && existingModel !== normalizedModel) {
-        try {
-          await deleteCodexGatewaySession(gatewayUrl, gatewaySessionId, gatewayAuthToken)
-        } catch (error) {
-          if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
-            throw error
-          }
-        }
-
-        gatewaySessionId = null
-
-        await db
-          .update(tasks)
-          .set({
-            gatewaySessionId: null,
-            selectedModel: FORCED_CODEX_MODEL,
-            updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, taskId))
-      } else {
-        transcriptCursor = existingState.state.transcript.length
-      }
-    } catch (error) {
-      if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
-        throw error
-      }
-      gatewaySessionId = null
-
-      await db
-        .update(tasks)
-        .set({
-          gatewaySessionId: null,
-          selectedModel: FORCED_CODEX_MODEL,
-          updatedAt: new Date(),
-        })
-        .where(eq(tasks.id, taskId))
-    }
-  }
+  let turnResponse: CodexGatewaySessionResponse
 
   if (!gatewaySessionId) {
-    await logger.info('Checking Codex gateway readiness')
-    await waitForCodexGatewayReady(gatewayUrl)
-
-    await logger.info('Creating Codex gateway session')
-    const created = await createCodexGatewaySession(
+    const ensuredSession = await ensureCodexGatewaySession({
+      task,
       gatewayUrl,
-      normalizedModel ? { model: normalizedModel } : {},
       gatewayAuthToken,
-    )
+      logger,
+    })
 
-    gatewaySessionId = created.sessionId
-    transcriptCursor = created.state.transcript.length
+    gatewaySessionId = ensuredSession.sessionId
   }
+
+  await logger.info('Forwarding prompt to Codex gateway')
+  try {
+    turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt }, gatewayAuthToken)
+  } catch (error) {
+    if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
+      throw error
+    }
+
+    await db
+      .update(tasks)
+      .set({
+        gatewaySessionId: null,
+        selectedModel: FORCED_CODEX_MODEL,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasks.id, taskId))
+
+    const refreshedSession = await ensureCodexGatewaySession({
+      task: {
+        ...task,
+        gatewaySessionId: null,
+      },
+      gatewayUrl,
+      gatewayAuthToken,
+      logger,
+    })
+
+    gatewaySessionId = refreshedSession.sessionId
+    turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt }, gatewayAuthToken)
+  }
+
+  await logger.info('Waiting for Codex gateway response')
+
+  const startedAt = new Date()
+  const transcriptCursor = getTurnTranscriptCursor(turnResponse.state.transcript)
 
   await db
     .update(tasks)
     .set({
       gatewaySessionId,
       gatewayUrl,
+      gatewayReadyAt: startedAt,
       selectedModel: FORCED_CODEX_MODEL,
       status: 'processing',
       progress: 0,
       error: null,
       completedAt: null,
-      updatedAt: new Date(),
+      updatedAt: startedAt,
     })
     .where(eq(tasks.id, taskId))
 
-  await logger.info('Forwarding prompt to Codex gateway')
-  await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt }, gatewayAuthToken)
-  await logger.info('Waiting for Codex gateway response')
+  await recordTurnCheckpoint({
+    taskId,
+    sessionId: gatewaySessionId,
+    transcriptCursor,
+    startedAt,
+  })
 
   return {
     taskId,
     sessionId: gatewaySessionId,
+    startedAt,
     transcriptCursor,
     gatewayUrl,
     gatewayAuthToken,
@@ -210,6 +180,8 @@ export async function startCodexGatewayTaskTurn(
 export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCodexGatewayTurn): Promise<void> {
   const logger = createTaskLogger(startedTurn.taskId)
   const { taskId, sessionId, transcriptCursor, gatewayUrl, gatewayAuthToken } = startedTurn
+
+  await markTurnCompletionRunning(taskId)
 
   let finalState: Awaited<ReturnType<typeof getCodexGatewaySessionState>> | null = null
   let maxDuration = 5
@@ -239,18 +211,21 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
         const assistantContent = finalState
           ? getAssistantContentAfterCursor(transcriptCursor, finalState.state.transcript)
           : ''
-        await persistAssistantMessage(taskId, assistantContent)
+        await finalizeTurnCompletion({
+          taskId,
+          sessionId,
+          transcriptCursor,
+          assistantContent,
+          success: false,
+          error: 'Codex gateway session is no longer available',
+          clearGatewaySession: true,
+        })
 
-        await db
-          .update(tasks)
-          .set({
-            status: 'error',
-            error: 'Codex gateway session is no longer available',
-            gatewaySessionId: null,
-            updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, taskId))
-
+        await refreshTaskDevboxLease({
+          id: taskId,
+          runtimeName: task?.runtimeName || null,
+          maxDuration: task?.maxDuration || null,
+        })
         await logger.error('Codex gateway session not found')
         return
       }
@@ -269,47 +244,58 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
     const assistantContent = finalState
       ? getAssistantContentAfterCursor(transcriptCursor, finalState.state.transcript)
       : ''
-    await persistAssistantMessage(taskId, assistantContent)
+    await finalizeTurnCompletion({
+      taskId,
+      sessionId,
+      transcriptCursor,
+      assistantContent,
+      success: false,
+      error: 'Codex gateway response timed out',
+    })
 
-    await db
-      .update(tasks)
-      .set({
-        status: 'error',
-        error: 'Codex gateway response timed out',
-        updatedAt: new Date(),
-      })
-      .where(eq(tasks.id, taskId))
-
+    await refreshTaskDevboxLease({
+      id: taskId,
+      runtimeName: task?.runtimeName || null,
+      maxDuration: task?.maxDuration || null,
+    })
     await logger.error('Codex gateway response timed out')
     return
   }
 
   const assistantContent = getAssistantContentAfterCursor(transcriptCursor, finalState.state.transcript)
-  await persistAssistantMessage(taskId, assistantContent)
 
   if (isSuccessfulTurnStatus(finalState.state.lastTurnStatus)) {
-    await db
-      .update(tasks)
-      .set({
-        status: 'completed',
-        progress: 100,
-        error: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(tasks.id, taskId))
+    await finalizeTurnCompletion({
+      taskId,
+      sessionId,
+      transcriptCursor,
+      assistantContent,
+      success: true,
+      error: null,
+    })
 
+    await refreshTaskDevboxLease({
+      id: taskId,
+      runtimeName: task?.runtimeName || null,
+      maxDuration: task?.maxDuration || null,
+    })
     await logger.success('Codex gateway response received')
     return
   }
 
-  await db
-    .update(tasks)
-    .set({
-      status: 'error',
-      error: 'Codex gateway turn failed',
-      updatedAt: new Date(),
-    })
-    .where(eq(tasks.id, taskId))
+  await finalizeTurnCompletion({
+    taskId,
+    sessionId,
+    transcriptCursor,
+    assistantContent,
+    success: false,
+    error: 'Codex gateway turn failed',
+  })
 
+  await refreshTaskDevboxLease({
+    id: taskId,
+    runtimeName: task?.runtimeName || null,
+    maxDuration: task?.maxDuration || null,
+  })
   await logger.error('Codex gateway turn failed')
 }

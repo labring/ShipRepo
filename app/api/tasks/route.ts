@@ -27,6 +27,10 @@ import { getMaxSandboxDuration } from '@/lib/db/settings'
 import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
 import { appendTaskMessage } from '@/lib/task-messages'
 
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+export const maxDuration = 300
+
 export async function GET() {
   try {
     // Get user session
@@ -232,43 +236,49 @@ export async function POST(request: NextRequest) {
       console.error('Failed to persist task user message')
     }
 
-    after(async () => {
-      const logger = createTaskLogger(taskId)
-      const [gatewayTaskSource] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
+    const logger = createTaskLogger(taskId)
 
-      if (!gatewayTaskSource) {
-        return
-      }
+    try {
+      await ensureTaskDevboxRuntime(newTask, { logger })
 
-      try {
-        await ensureTaskDevboxRuntime(gatewayTaskSource, { logger })
-      } catch {
-        console.error('Failed to ensure Devbox runtime for Codex task')
-        await logger.error('Failed to ensure Devbox runtime')
-      }
+      const startedTurn = await startCodexGatewayTaskTurn(taskId, validatedData.prompt, {
+        appendUserMessage: !userMessagePersisted,
+        model: selectedModel,
+      })
 
-      try {
-        const startedTurn = await startCodexGatewayTaskTurn(taskId, validatedData.prompt, {
-          appendUserMessage: !userMessagePersisted,
-          model: selectedModel,
+      after(async () => {
+        try {
+          await waitForCodexGatewayTurnCompletion(startedTurn)
+        } catch {
+          console.error('Failed to finalize Codex task')
+
+          await db
+            .update(tasks)
+            .set({
+              status: 'error',
+              error: 'Failed to finalize Codex task',
+              updatedAt: new Date(),
+            })
+            .where(eq(tasks.id, taskId))
+
+          await logger.error('Failed to finalize Codex task')
+        }
+      })
+    } catch {
+      console.error('Failed to start Codex task')
+
+      await db
+        .update(tasks)
+        .set({
+          status: 'error',
+          error: 'Failed to start Codex gateway task',
+          updatedAt: new Date(),
         })
+        .where(eq(tasks.id, taskId))
 
-        await waitForCodexGatewayTurnCompletion(startedTurn)
-      } catch {
-        console.error('Failed to start Codex gateway task')
-
-        await db
-          .update(tasks)
-          .set({
-            status: 'error',
-            error: 'Failed to start Codex gateway task',
-            updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, taskId))
-
-        await logger.error('Failed to start Codex gateway task')
-      }
-    })
+      await logger.error('Failed to start Codex gateway task')
+      return NextResponse.json({ error: 'Failed to start Codex gateway task' }, { status: 500 })
+    }
 
     const [gatewayTask] = await db.select().from(tasks).where(eq(tasks.id, taskId)).limit(1)
     return NextResponse.json({ task: gatewayTask || newTask })

@@ -282,7 +282,7 @@ Based on your `NEXT_PUBLIC_AUTH_PROVIDERS` configuration, you'll need to create 
 5. Copy the **Client ID** → use for `GITHUB_CLIENT_ID`
 6. Click "Generate a new client secret" → copy and use for `GITHUB_CLIENT_SECRET`
 
-**Required Scopes**: The app will request `repo` scope to access repositories.
+**Required Scopes**: The app will request `repo`, `read:user`, `user:email`, `read:packages`, and `write:packages` scopes to access repositories and push container images to GHCR.
 
 #### Vercel OAuth App (if using Vercel authentication)
 

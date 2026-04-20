@@ -3,6 +3,7 @@ import { getServerSession } from '@/lib/session/get-server-session'
 import { db } from '@/lib/db/client'
 import { taskMessages, tasks } from '@/lib/db/schema'
 import { eq, and, asc, isNull } from 'drizzle-orm'
+import { hasActiveTurnCheckpoint, reconcileIncompleteTurn } from '@/lib/codex-gateway/completion'
 
 export async function GET(req: NextRequest, context: { params: Promise<{ taskId: string }> }) {
   try {
@@ -23,6 +24,14 @@ export async function GET(req: NextRequest, context: { params: Promise<{ taskId:
 
     if (!task.length) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
+    }
+
+    if (task[0].selectedAgent === 'codex' && hasActiveTurnCheckpoint(task[0])) {
+      try {
+        await reconcileIncompleteTurn(taskId)
+      } catch {
+        console.error('Failed to reconcile incomplete Codex turn')
+      }
     }
 
     // Fetch all messages for this task, ordered by creation time

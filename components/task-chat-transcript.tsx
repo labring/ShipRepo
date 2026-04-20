@@ -40,7 +40,7 @@ export const TaskChatTranscript = memo(function TaskChatTranscript({
   const visibleLogs = useMemo(() => logs.filter((entry) => !entry.message.startsWith('[SERVER]')).slice(-6), [logs])
 
   const messageSignature = useMemo(
-    () => messages.map((message) => `${message.id}:${message.role}:${message.content.length}`).join('|'),
+    () => messages.map((message) => `${message.id}:${message.role}`).join('|'),
     [messages],
   )
 
@@ -51,7 +51,7 @@ export const TaskChatTranscript = memo(function TaskChatTranscript({
     }
 
     const handleScroll = () => {
-      const threshold = 120
+      const threshold = 24
       const position = container.scrollTop + container.clientHeight
       wasAtBottomRef.current = position >= container.scrollHeight - threshold
     }
