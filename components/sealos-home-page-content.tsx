@@ -156,7 +156,7 @@ export function SealosHomePageContent({
   const commandPlaceholder = !isAuthenticated
     ? 'Sign in to choose a repository and unlock deploy.'
     : hasSelectedRepo
-      ? 'Deploy this repo.'
+      ? 'Prepare this repo for Sealos with /sealos-deploy.'
       : 'Choose a repository above to unlock the deploy command.'
 
   const commandHelperText = !isAuthenticated

@@ -69,7 +69,7 @@ export function TaskForm({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const hasSelectedRepo = Boolean(selectedOwner && selectedRepo)
   const isCommandVariant = variant === 'command'
-  const defaultCommand = 'Deploy this repo.'
+  const defaultCommand = 'Prepare this repo for Sealos with /sealos-deploy.'
 
   const handleTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key !== 'Enter') {
