@@ -18,6 +18,7 @@ import { getDevboxArchiveAfterPauseTime, getDevboxDefaultImage, getDevboxNamespa
 import { createTaskDevboxName, createTaskDevboxUpstreamId } from '@/lib/devbox/naming'
 import type { DevboxInfo, DevboxSshInfo } from '@/lib/devbox/types'
 import { getUserGitHubToken } from '@/lib/github/user-token'
+import { redactSensitiveInfo } from '@/lib/utils/logging'
 import type { TaskLogger } from '@/lib/utils/task-logger'
 import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 import { createAuthenticatedRepoUrl } from '@/lib/sandbox/config'
@@ -53,9 +54,82 @@ const DEVBOX_BOOTSTRAP_READY_POLL_MS = 2_000
 const DEVBOX_SKILL_INSTALL_MARKER = '__CODEX_SKILL_INSTALLED__:1'
 const DEVBOX_RUNTIME_READY_TIMEOUT_MS = 60_000
 const DEVBOX_RUNTIME_READY_POLL_MS = 2_000
+const DEVBOX_SECRET_READY_MAX_RETRIES = 3
+const DEVBOX_SECRET_READY_RETRY_DELAY_MS = 2_000
+const DEVBOX_BOOTSTRAP_DEBUG_MAX_LINES = 20
+const DEVBOX_BOOTSTRAP_DEBUG_MAX_CHARS = 2_000
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')
+}
+
+function redactPathLikeInfo(value: string): string {
+  return value
+    .replace(/https?:\/\/[^\s'"]+/gi, '[REDACTED_URL]')
+    .replace(/\b(?:\/[^/\s'"]+)+\/?/g, '[REDACTED_PATH]')
+    .replace(/\b(?:[A-Za-z]:\\(?:[^\\\s'"]+\\)*[^\\\s'"]*)/g, '[REDACTED_PATH]')
+}
+
+function summarizeBootstrapDebugOutput(value: string): string {
+  const normalized = stripAnsi(value).replace(/\r\n/g, '\n').trim()
+
+  if (!normalized) {
+    return '[empty]'
+  }
+
+  const lines = redactPathLikeInfo(redactSensitiveInfo(normalized))
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .filter((line) => line.length > 0)
+
+  if (lines.length === 0) {
+    return '[empty]'
+  }
+
+  const summary = lines.slice(-DEVBOX_BOOTSTRAP_DEBUG_MAX_LINES).join('\n')
+  if (summary.length <= DEVBOX_BOOTSTRAP_DEBUG_MAX_CHARS) {
+    return summary
+  }
+
+  return summary.slice(-DEVBOX_BOOTSTRAP_DEBUG_MAX_CHARS)
+}
+
+function logBootstrapDebugOutput(stdout: string, stderr: string): void {
+  const stdoutSummary = summarizeBootstrapDebugOutput(stdout)
+  const stderrSummary = summarizeBootstrapDebugOutput(stderr)
+
+  console.error('Devbox workspace bootstrap stdout summary:', stdoutSummary)
+  console.error('Devbox workspace bootstrap stderr summary:', stderrSummary)
+}
+
+function isDevboxSecretPendingError(error: unknown): error is DevboxApiError {
+  return (
+    error instanceof DevboxApiError &&
+    error.status >= 500 &&
+    error.message.includes('get devbox private key failed') &&
+    error.message.includes('not found')
+  )
+}
+
+async function getDevboxWithSecretRetry(name: string): Promise<{ data: DevboxInfo }> {
+  let attempt = 0
+
+  while (true) {
+    try {
+      return await getDevbox(name)
+    } catch (error) {
+      if (!isDevboxSecretPendingError(error) || attempt >= DEVBOX_SECRET_READY_MAX_RETRIES) {
+        throw error
+      }
+
+      attempt += 1
+      await sleep(DEVBOX_SECRET_READY_RETRY_DELAY_MS)
+    }
+  }
 }
 
 function shellEscape(value: string): string {
@@ -147,7 +221,7 @@ async function waitForRunningDevbox(runtimeName: string): Promise<DevboxInfo> {
   const startedAt = Date.now()
 
   while (Date.now() - startedAt < DEVBOX_RUNTIME_READY_TIMEOUT_MS) {
-    const response = await getDevbox(runtimeName)
+    const response = await getDevboxWithSecretRetry(runtimeName)
 
     if (response.data.state.phase === 'Running') {
       return response.data
@@ -160,7 +234,7 @@ async function waitForRunningDevbox(runtimeName: string): Promise<DevboxInfo> {
 }
 
 async function ensureRunningDevbox(task: Task, runtimeName: string): Promise<DevboxInfo> {
-  const response = await getDevbox(runtimeName)
+  const response = await getDevboxWithSecretRetry(runtimeName)
 
   if (response.data.state.phase === 'Running') {
     return response.data
@@ -311,7 +385,7 @@ ${managedCodexConfigToml}EOF`,
 
   while (true) {
     try {
-      const runtime = await getDevbox(runtimeName)
+      const runtime = await getDevboxWithSecretRetry(runtimeName)
       if (runtime.data.state.phase !== 'Running') {
         console.info('Devbox workspace bootstrap waiting for runtime')
         lastPendingError = true
@@ -330,7 +404,9 @@ ${managedCodexConfigToml}EOF`,
       console.info('Devbox workspace bootstrap exec finished')
 
       if (execResponse.data.exitCode !== 0) {
+        await logger?.error('Devbox workspace bootstrap failed')
         console.error('Devbox workspace bootstrap failed')
+        logBootstrapDebugOutput(execResponse.data.stdout, execResponse.data.stderr)
         throw new Error('Failed to bootstrap Devbox workspace')
       }
 
@@ -539,7 +615,7 @@ export async function ensureTaskDevboxRuntime(
     ],
   })
 
-  const infoResponse = await getDevbox(runtimeName)
+  const infoResponse = await getDevboxWithSecretRetry(runtimeName)
   const runtimeInfo =
     infoResponse.data.state.phase === 'Running' ? infoResponse.data : await ensureRunningDevbox(task, runtimeName)
   const gatewayUrl = resolveCodexGatewayUrl(runtimeName, task.gatewayUrl, runtimeInfo)

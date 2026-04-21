@@ -390,19 +390,20 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
   const activityItems = useMemo(() => {
     const persistedActivityItems = buildAgentActivityItemsFromTaskEvents(persistedEvents)
     const liveActivityItems = buildAgentActivityItemsFromState(liveState)
-    const seen = new Set<string>()
+    const latestByIdentity = new Map<string, TaskAgentActivityItem>()
 
-    return [...persistedActivityItems, ...liveActivityItems]
-      .toSorted((left, right) => left.occurredAt.localeCompare(right.occurredAt))
-      .filter((item) => {
-        const key = `${item.label}|${item.detail}|${item.occurredAt}`
-        if (seen.has(key)) {
-          return false
-        }
+    for (const item of [...persistedActivityItems, ...liveActivityItems]) {
+      const identityKey = `${item.groupKey}|${item.label}|${item.detail}`
+      const previousItem = latestByIdentity.get(identityKey)
 
-        seen.add(key)
-        return true
-      })
+      if (!previousItem || previousItem.occurredAt.localeCompare(item.occurredAt) <= 0) {
+        latestByIdentity.set(identityKey, item)
+      }
+    }
+
+    return Array.from(latestByIdentity.values()).toSorted((left, right) =>
+      left.occurredAt.localeCompare(right.occurredAt),
+    )
   }, [liveState, persistedEvents])
 
   return {
