@@ -13,6 +13,7 @@ interface SharedHeaderProps {
   initialStars?: number
   hideStars?: boolean
   hideDeployButton?: boolean
+  hideUserAction?: boolean
 }
 
 export function SharedHeader({
@@ -21,6 +22,7 @@ export function SharedHeader({
   initialStars = 1200,
   hideStars = true,
   hideDeployButton = true,
+  hideUserAction = false,
 }: SharedHeaderProps) {
   const { toggleSidebar } = useTasks()
 
@@ -62,7 +64,7 @@ export function SharedHeader({
 
           {extraActions}
 
-          <User />
+          {!hideUserAction ? <User /> : null}
         </div>
       </div>
     </div>

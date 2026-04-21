@@ -53,6 +53,13 @@ export function SealosHomePageContent({
   const githubConnectionInitialized = useAtomValue(githubConnectionInitializedAtom)
   const isGitHubAuthUser = session.authProvider === 'github'
   const { github: hasGitHub, vercel: hasVercel } = getEnabledAuthProviders()
+  const isAuthenticated = Boolean(user)
+  const visibleSelectedOwner = isAuthenticated ? selectedOwner : ''
+  const visibleSelectedRepo = isAuthenticated ? selectedRepo : ''
+  const hasSelectedRepo = Boolean(visibleSelectedOwner && visibleSelectedRepo)
+  const canSelectRepository =
+    isAuthenticated &&
+    (githubConnection.connected || isGitHubAuthUser || Boolean(selectedOwner) || Boolean(selectedRepo))
 
   const handleOwnerChange = (owner: string) => {
     setSelectedOwnerState(owner)
@@ -86,7 +93,7 @@ export function SealosHomePageContent({
 
     if (!data.repoUrl) {
       toast.error('Please select a repository', {
-        description: 'Choose a GitHub repository from the header before starting the task.',
+        description: 'Choose a GitHub repository before starting the task.',
       })
       return
     }
@@ -137,23 +144,69 @@ export function SealosHomePageContent({
     window.location.href = '/api/auth/github/signin'
   }
 
-  const headerLeftActions = (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      {!githubConnectionInitialized ? null : githubConnection.connected ||
-        isGitHubAuthUser ||
-        selectedOwner ||
-        selectedRepo ? (
-        <RepoSelector
-          selectedOwner={selectedOwner}
-          selectedRepo={selectedRepo}
-          onOwnerChange={handleOwnerChange}
-          onRepoChange={handleRepoChange}
-          size="sm"
-        />
-      ) : user ? (
-        <Button onClick={handleConnectGitHub} variant="outline" size="sm" className="h-8 flex-shrink-0">
-          <GitHubIcon className="mr-2 h-4 w-4" />
-          Connect GitHub
+  const openSignIn = () => {
+    setShowSignInDialog(true)
+  }
+
+  const commandDisabled = !isAuthenticated || !hasSelectedRepo
+  const pageDescription = !isAuthenticated
+    ? 'Stay on the same deploy surface. Sign in, choose a repository, then run the command.'
+    : 'Choose a GitHub repository, then tell Sealos what to launch. The shell stays the same from setup to deploy.'
+
+  const commandPlaceholder = !isAuthenticated
+    ? 'Sign in to choose a repository and unlock deploy.'
+    : hasSelectedRepo
+      ? 'Deploy this repo.'
+      : 'Choose a repository above to unlock the deploy command.'
+
+  const commandHelperText = !isAuthenticated
+    ? 'Sign in to choose a repository and unlock deploy.'
+    : hasSelectedRepo
+      ? ''
+      : canSelectRepository
+        ? 'Select a repository above to continue.'
+        : 'Connect GitHub to choose a repository.'
+
+  const commandHeader = (
+    <div className="flex flex-col gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0">
+        <div className="sealos-meta-label">Repository</div>
+
+        <div className="mt-3 min-w-0">
+          {!isAuthenticated ? (
+            <div className="sealos-helper">Sign in to choose a GitHub repository.</div>
+          ) : !githubConnectionInitialized ? (
+            <div className="sealos-helper">Checking your GitHub connection...</div>
+          ) : canSelectRepository ? (
+            <div className="inline-flex max-w-full items-center rounded-full border border-border/70 bg-muted/20 px-2.5 py-1.5">
+              <RepoSelector
+                selectedOwner={selectedOwner}
+                selectedRepo={selectedRepo}
+                onOwnerChange={handleOwnerChange}
+                onRepoChange={handleRepoChange}
+              />
+            </div>
+          ) : (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleConnectGitHub}
+              className="sealos-action-text h-10 rounded-full px-4"
+            >
+              <GitHubIcon className="h-4 w-4" />
+              Connect GitHub
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {!isAuthenticated ? (
+        <Button
+          type="button"
+          onClick={openSignIn}
+          className="sealos-action-text h-10 rounded-full px-4 sm:flex-shrink-0"
+        >
+          Sign in
         </Button>
       ) : null}
     </div>
@@ -162,19 +215,33 @@ export function SealosHomePageContent({
   return (
     <div className="flex flex-1 flex-col bg-background">
       <div className="p-3">
-        <SharedHeader leftActions={headerLeftActions} initialStars={initialStars} />
+        <SharedHeader initialStars={initialStars} hideUserAction={!user} />
       </div>
 
       <div className="flex flex-1 items-center justify-center px-4 pb-8">
-        <TaskForm
-          onSubmit={handleTaskSubmit}
-          isSubmitting={isSubmitting}
-          isAuthenticated={Boolean(user)}
-          selectedOwner={selectedOwner}
-          selectedRepo={selectedRepo}
-          initialMaxDuration={initialMaxDuration}
-          maxSandboxDuration={maxSandboxDuration}
-        />
+        <div className="w-full max-w-3xl">
+          <div className="mb-7 text-center">
+            <div className="sealos-eyebrow">Deploy to Sealos</div>
+            <h1 className="sealos-section-title mt-4 text-foreground sm:text-[2.5rem]">Deploy with one command</h1>
+            <p className="sealos-body mx-auto mt-3">{pageDescription}</p>
+          </div>
+
+          <TaskForm
+            onSubmit={handleTaskSubmit}
+            isSubmitting={isSubmitting}
+            isAuthenticated={isAuthenticated}
+            selectedOwner={visibleSelectedOwner}
+            selectedRepo={visibleSelectedRepo}
+            variant="command"
+            commandDisabled={commandDisabled}
+            commandPlaceholder={commandPlaceholder}
+            commandHelperText={commandHelperText}
+            alwaysShowCommandHelper={commandDisabled}
+            commandHeader={commandHeader}
+            initialMaxDuration={initialMaxDuration}
+            maxSandboxDuration={maxSandboxDuration}
+          />
+        </div>
       </div>
 
       <Dialog open={showSignInDialog} onOpenChange={setShowSignInDialog}>

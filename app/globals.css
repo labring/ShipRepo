@@ -8,6 +8,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --font-display: var(--font-commissioner);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -120,6 +121,86 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-kerning: normal;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+@layer utilities {
+  .sealos-eyebrow {
+    color: color-mix(in oklab, var(--foreground) 44%, var(--background));
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .sealos-hero-title {
+    font-family: var(--font-display), var(--font-sans), sans-serif;
+    font-size: clamp(2.5rem, 5vw, 3.8rem);
+    font-weight: 600;
+    letter-spacing: -0.062em;
+    line-height: 0.92;
+    text-wrap: balance;
+  }
+
+  .sealos-section-title {
+    font-family: var(--font-display), var(--font-sans), sans-serif;
+    font-size: clamp(1.35rem, 2vw, 1.75rem);
+    font-weight: 600;
+    letter-spacing: -0.05em;
+    line-height: 1.02;
+    text-wrap: balance;
+  }
+
+  .sealos-body {
+    max-width: 34rem;
+    color: var(--muted-foreground);
+    font-size: 0.95rem;
+    font-weight: 400;
+    letter-spacing: -0.012em;
+    line-height: 1.68;
+    text-wrap: pretty;
+  }
+
+  .sealos-meta-label {
+    color: var(--muted-foreground);
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    line-height: 1;
+    text-transform: uppercase;
+  }
+
+  .sealos-meta-value {
+    color: var(--foreground);
+    font-size: 0.98rem;
+    font-weight: 600;
+    letter-spacing: -0.028em;
+    line-height: 1.2;
+  }
+
+  .sealos-command-text {
+    color: var(--foreground);
+    font-size: 1.02rem;
+    font-weight: 400;
+    letter-spacing: -0.018em;
+    line-height: 1.72;
+  }
+
+  .sealos-helper {
+    color: var(--muted-foreground);
+    font-size: 0.78rem;
+    font-weight: 400;
+    letter-spacing: -0.006em;
+    line-height: 1.45;
+  }
+
+  .sealos-action-text {
+    font-size: 0.93rem;
+    font-weight: 600;
+    letter-spacing: -0.022em;
   }
 }
 
