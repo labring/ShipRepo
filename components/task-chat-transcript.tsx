@@ -96,7 +96,6 @@ export const TaskChatTranscript = memo(function TaskChatTranscript({
   return (
     <div ref={scrollContainerRef} className="flex-1 overflow-y-auto pb-4">
       <div className="space-y-6 px-1">
-        {isGatewayTask ? <TaskAgentActivity items={activityItems} isStreaming={isStreaming} /> : null}
         {turns.map((turn, index) => {
           const isLastTurn = index === turns.length - 1
           const showWaitingState = isLastTurn && isProcessing && turn.agentMessages.length === 0
@@ -134,6 +133,10 @@ export const TaskChatTranscript = memo(function TaskChatTranscript({
                     </div>
                   </div>
                 </div>
+              ) : null}
+
+              {isGatewayTask && isLastTurn ? (
+                <TaskAgentActivity items={activityItems} isStreaming={isStreaming} />
               ) : null}
 
               {turn.agentMessages.map((message) => {
