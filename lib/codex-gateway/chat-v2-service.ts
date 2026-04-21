@@ -3,6 +3,7 @@ import { startCodexGatewayTaskTurn, waitForCodexGatewayTurnCompletion } from '@/
 import { db } from '@/lib/db/client'
 import { tasks, type Task } from '@/lib/db/schema'
 import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
+import { prependSealosDeployContext } from '@/lib/sealos-deploy-context'
 import { ensureTaskChatV2StreamDescriptor, type TaskChatV2StreamDescriptor } from '@/lib/task-chat-v2'
 import { appendUserMessageEvent, recordTaskEvent } from '@/lib/task-events'
 import { createTaskLogger } from '@/lib/utils/task-logger'
@@ -52,9 +53,10 @@ export async function startTaskChatV2Turn(input: {
     })
     .where(eq(tasks.id, input.task.id))
 
-  await ensureTaskDevboxRuntime(input.task, { logger })
+  const runtime = await ensureTaskDevboxRuntime(input.task, { logger })
+  const gatewayPrompt = prependSealosDeployContext(input.prompt, runtime.namespace || input.task.runtimeNamespace)
 
-  const startedTurn = await startCodexGatewayTaskTurn(input.task.id, input.prompt, {
+  const startedTurn = await startCodexGatewayTaskTurn(input.task.id, gatewayPrompt, {
     appendUserMessage: false,
     model: input.task.selectedModel,
   })

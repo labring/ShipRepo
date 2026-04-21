@@ -6,7 +6,9 @@ import { tasks } from '@/lib/db/schema'
 import { CodexGatewayApiError } from '@/lib/codex-gateway/client'
 import { startCodexGatewayTaskTurn, waitForCodexGatewayTurnCompletion } from '@/lib/codex-gateway/runner'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
+import { prependSealosDeployContext } from '@/lib/sealos-deploy-context'
 import { getServerSession } from '@/lib/session/get-server-session'
+import { appendTaskMessage } from '@/lib/task-messages'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 
 const turnSchema = z.object({
@@ -45,10 +47,25 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const prompt = parsed.data.prompt
-    const startedTurn = await startCodexGatewayTaskTurn(taskId, prompt, {
-      appendUserMessage: true,
-      model: task.selectedModel,
-    })
+
+    try {
+      await appendTaskMessage({
+        taskId,
+        role: 'user',
+        content: prompt,
+      })
+    } catch {
+      console.error('Failed to persist gateway turn user message')
+    }
+
+    const startedTurn = await startCodexGatewayTaskTurn(
+      taskId,
+      prependSealosDeployContext(prompt, task.runtimeNamespace),
+      {
+        appendUserMessage: false,
+        model: task.selectedModel,
+      },
+    )
 
     after(async () => {
       try {
