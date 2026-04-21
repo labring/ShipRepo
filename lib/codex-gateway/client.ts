@@ -20,7 +20,7 @@ export class CodexGatewayApiError extends Error {
 
 const CODEX_GATEWAY_STARTUP_TIMEOUT_MS = 60_000
 const CODEX_GATEWAY_STARTUP_RETRY_MS = 1_000
-const CODEX_GATEWAY_REQUEST_TIMEOUT_MS = 10_000
+const CODEX_GATEWAY_REQUEST_TIMEOUT_MS = 60_000
 
 function buildUrl(baseUrl: string, path: string): string {
   const url = new URL(baseUrl)
