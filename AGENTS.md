@@ -9,6 +9,7 @@ This document contains critical rules and guidelines for AI agents working on th
 **By default, all log statements MUST use static strings only. Dynamic values are only allowed through the task-flow logging utility in `lib/utils/task-flow-logs.ts`.**
 
 #### Bad Examples (DO NOT DO THIS):
+
 ```typescript
 // BAD - Contains dynamic values
 await logger.info(`Task created: ${taskId}`)
@@ -18,6 +19,7 @@ console.error(`Error for ${provider}:`, error)
 ```
 
 #### Good Examples (DO THIS):
+
 ```typescript
 // GOOD - Static strings only
 await logger.info('Task created')
@@ -35,6 +37,7 @@ Key task flow logs may include selected dynamic values, but only when all of the
 3. The values are operational identifiers only, not secrets or user content
 
 Examples of allowed dynamic values:
+
 - `sessionId`
 - `threadId`
 - `runtimeName`
@@ -48,17 +51,20 @@ Examples of allowed dynamic values:
 - `installedSkill`
 
 Examples that remain forbidden:
+
 - tokens, secrets, API keys, passwords
 - repository URLs and file paths
 - raw user prompts or assistant content
 - branch names, commit messages, personal identifiers
 
 #### Rationale:
+
 - **Prevents data leakage**: Dynamic values in logs can expose sensitive information (user IDs, file paths, credentials, etc.) to end users
 - **Security by default**: Logs are displayed directly in the UI and returned in API responses
 - Outside the approved task-flow utility path, this applies to ALL log levels (info, error, success, command, console.log, console.error, console.warn, etc.)
 
 #### Sensitive Data That Must NEVER Appear in Logs:
+
 - Devbox runtime credentials (DEVBOX_TOKEN, DEVBOX_JWT_SIGNING_KEY)
 - User IDs and personal information
 - File paths and repository URLs
@@ -71,8 +77,9 @@ Examples that remain forbidden:
 The `redactSensitiveInfo()` function in `lib/utils/logging.ts` automatically redacts known sensitive patterns, but this is a **backup measure only**. The primary defense is to never log dynamic values in the first place.
 
 #### Current Redaction Patterns:
+
 - API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
-- GitHub tokens (ghp_, gho_, ghu_, ghs_, ghr_)
+- GitHub tokens (ghp*, gho*, ghu*, ghs*, ghr\_)
 - Devbox runtime credentials (DEVBOX_TOKEN, DEVBOX_JWT_SIGNING_KEY)
 - Bearer tokens
 - JSON fields (teamId, projectId)
@@ -93,6 +100,7 @@ pnpm lint
 ```
 
 **If any errors are found:**
+
 1. **Type errors**: Fix TypeScript type errors by correcting type annotations, adding missing imports, or fixing type mismatches
 2. **Lint errors**: Fix ESLint errors by following the suggested fixes or adjusting the code to meet the linting rules
 3. **Do not skip or ignore errors** - all errors must be resolved before considering the task complete
@@ -114,12 +122,14 @@ Existing components are in `components/ui/`. See [shadcn/ui docs](https://ui.sha
 **DO NOT run development servers (e.g., `npm run dev`, `pnpm dev`, `next dev`) as they will conflict with other running instances.**
 
 #### Why This Rule Exists:
+
 - Dev servers run indefinitely and block the terminal session
 - Multiple instances on the same port cause conflicts
 - The application may already be running in the user's environment
 - Long-running processes make the conversation hang for the user
 
 #### Commands to AVOID:
+
 ```bash
 # DO NOT RUN THESE:
 npm run dev
@@ -133,6 +143,7 @@ nodemon
 ```
 
 #### What to Do Instead:
+
 1. **Type checking**: Use `pnpm type-check` to verify types
 2. **Linting**: Use `pnpm lint` to check code quality
 3. **Formatting**: Use `pnpm format` when editing TypeScript/TSX files
@@ -141,11 +152,13 @@ nodemon
 6. **If the user needs to test**: Let the user run the dev server themselves
 
 #### Exception:
+
 If the user explicitly asks you to start a dev server, politely explain why you cannot do this and suggest they run it themselves instead.
 
 ### Logging Best Practices
 
 1. **Use descriptive static messages**
+
    ```typescript
    // Instead of logging the value, log the action
    await logger.info('Sandbox created successfully')
@@ -154,6 +167,7 @@ If the user explicitly asks you to start a dev server, politely explain why you 
    ```
 
 2. **Server-side logging for debugging**
+
    ```typescript
    // Use console.error for server-side debugging (not shown to users)
    // But still avoid sensitive data
@@ -170,6 +184,7 @@ If the user explicitly asks you to start a dev server, politely explain why you 
 ### Error Handling
 
 1. **Generic error messages to users**
+
    ```typescript
    await logger.error('Operation failed')
    // NOT: await logger.error(`Operation failed: ${error.message}`)
@@ -186,10 +201,11 @@ If the user explicitly asks you to start a dev server, politely explain why you 
 When making changes that involve logging:
 
 1. **Search for dynamic values**
+
    ```bash
    # Check for logger statements with template literals
    grep -r "logger\.(info|error|success|command)\(\`.*\$\{" .
-   
+
    # Check for console statements with template literals
    grep -r "console\.(log|error|warn|info)\(\`.*\$\{" .
    ```
@@ -204,9 +220,13 @@ When making changes that involve logging:
 ### Environment Variables
 
 Never expose these in logs or to the client:
+
+- `POSTGRES_URL` - Database connection string that may contain credentials
+- `SEALOS_HOST` - Sealos cluster host configuration
 - `DEVBOX_TOKEN` - Devbox runtime API token
 - `DEVBOX_JWT_SIGNING_KEY` - Devbox JWT signing secret
-- `DEVBOX_GATEWAY_URL_TEMPLATE` - Devbox gateway URL template
+
+- `AI_GATEWAY_API_KEY` - AI Gateway API key
 - `ANTHROPIC_API_KEY` - Anthropic/Claude API key
 - `OPENAI_API_KEY` - OpenAI API key
 - `GEMINI_API_KEY` - Google Gemini API key
@@ -219,8 +239,19 @@ Never expose these in logs or to the client:
 ### Client-Safe Variables
 
 Only these variables should be exposed to the client (via `NEXT_PUBLIC_` prefix):
+
 - `NEXT_PUBLIC_AUTH_PROVIDERS` - Available auth providers
-- `NEXT_PUBLIC_GITHUB_CLIENT_ID` - GitHub OAuth client ID (public)
+
+### Runtime Variables Used By Current App Code
+
+The current codebase expects these environment variables:
+
+- Required core runtime: `POSTGRES_URL`, `SEALOS_HOST`, `DEVBOX_TOKEN`, `JWE_SECRET`, `ENCRYPTION_KEY`, `NEXT_PUBLIC_AUTH_PROVIDERS`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+- Required for Devbox JWT auth when `DEVBOX_TOKEN` is not set: `DEVBOX_JWT_SIGNING_KEY`
+- Required for AI-generated branch names, titles, and commit messages: `AI_GATEWAY_API_KEY`
+- Optional callback override for self-hosted deployments: `APP_BASE_URL`
+
+Do not rename these without updating the corresponding code paths. In particular, GitHub OAuth currently uses `GITHUB_CLIENT_ID` on the server, not `NEXT_PUBLIC_GITHUB_CLIENT_ID`.
 
 ## Architecture Guidelines
 
@@ -229,6 +260,7 @@ Only these variables should be exposed to the client (via `NEXT_PUBLIC_` prefix)
 The repository page uses a nested routing structure with separate pages for each tab:
 
 #### Route Structure
+
 ```
 app/repos/[owner]/[repo]/
 ├── layout.tsx           # Shared layout with navigation tabs
@@ -242,12 +274,14 @@ app/repos/[owner]/[repo]/
 ```
 
 #### Components
+
 - `components/repo-layout.tsx` - Shared layout component with tab navigation
 - `components/repo-commits.tsx` - Commits list component
 - `components/repo-issues.tsx` - Issues list component
 - `components/repo-pull-requests.tsx` - Pull requests list component
 
 #### API Routes
+
 ```
 app/api/repos/[owner]/[repo]/
 ├── commits/route.ts         # GET - Fetch commits
@@ -256,6 +290,7 @@ app/api/repos/[owner]/[repo]/
 ```
 
 #### Key Features
+
 1. **Tab Navigation**: Uses Next.js Link components for client-side navigation between tabs
 2. **Separate Pages**: Each tab renders on its own route (commits, issues, pull-requests)
 3. **Default Route**: Visiting `/repos/[owner]/[repo]` redirects to `/repos/[owner]/[repo]/commits`
@@ -263,6 +298,7 @@ app/api/repos/[owner]/[repo]/
 5. **GitHub Integration**: All data is fetched from GitHub API using Octokit client
 
 #### Adding New Tabs
+
 To add a new tab to the repository page:
 
 1. Create a new directory under `app/repos/[owner]/[repo]/[tab-name]/`
@@ -291,6 +327,7 @@ Before submitting changes, verify:
 ## Questions?
 
 If you need to log information for debugging purposes:
+
 1. Use server-side console logs (not shown to users)
 2. Still avoid logging sensitive credentials
 3. Consider adding better error handling instead of logging details
@@ -299,7 +336,6 @@ If you need to log information for debugging purposes:
 ---
 
 **Remember: When in doubt, use a static string. No exceptions.**
-
 
 <!-- opensrc:start -->
 
@@ -323,7 +359,9 @@ npx opensrc <owner>/<repo>      # GitHub repo (e.g., npx opensrc vercel/ai)
 ```
 
 <!-- opensrc:end -->
+
 4. **Use task-flow logs for approved runtime identifiers**
+
    ```typescript
    import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 

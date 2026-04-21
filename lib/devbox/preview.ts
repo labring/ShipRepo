@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
 import { type Task, tasks } from '@/lib/db/schema'
-import { buildDevboxUrl, execInTaskWorkspace, ensureOwnedTaskRuntime } from '@/lib/devbox/task-compat'
+import { buildRuntimePortUrl, execInTaskWorkspace, ensureOwnedTaskRuntime } from '@/lib/devbox/task-compat'
 
 export interface TaskPreviewRuntime {
   packageJson: Record<string, unknown>
@@ -108,7 +108,7 @@ function getDevCommand(packageJson: Record<string, unknown>, packageManager: 'pn
 }
 
 export async function ensureTaskPreviewRuntime(task: Task): Promise<TaskPreviewRuntime> {
-  const { task: runtimeTask, runtimeName } = await ensureOwnedTaskRuntime(task)
+  const { task: runtimeTask } = await ensureOwnedTaskRuntime(task)
   const packageJson = await readPackageJson(runtimeTask)
 
   if (!packageJson) {
@@ -124,7 +124,7 @@ export async function ensureTaskPreviewRuntime(task: Task): Promise<TaskPreviewR
   await installDependencies(runtimeTask, packageManager)
 
   const port = detectPreviewPort(packageJson)
-  const previewUrl = buildDevboxUrl(runtimeName, port)
+  const previewUrl = buildRuntimePortUrl(runtimeTask.gatewayUrl, port)
 
   return {
     packageJson,
