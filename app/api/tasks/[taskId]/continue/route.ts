@@ -4,6 +4,7 @@ import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
 import { startCodexGatewayTaskTurn, waitForCodexGatewayTurnCompletion } from '@/lib/codex-gateway/runner'
 import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
+import { prependSealosDeployContext } from '@/lib/sealos-deploy-context'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 import { getServerSession } from '@/lib/session/get-server-session'
@@ -82,9 +83,10 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
       const logger = createTaskLogger(taskId)
 
       try {
-        await ensureTaskDevboxRuntime(task, { logger })
+        const runtime = await ensureTaskDevboxRuntime(task, { logger })
+        const gatewayPrompt = prependSealosDeployContext(trimmedMessage, runtime.namespace || task.runtimeNamespace)
 
-        const startedTurn = await startCodexGatewayTaskTurn(taskId, trimmedMessage, {
+        const startedTurn = await startCodexGatewayTaskTurn(taskId, gatewayPrompt, {
           appendUserMessage: !userMessagePersisted,
           model: task.selectedModel,
         })

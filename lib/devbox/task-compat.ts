@@ -174,21 +174,15 @@ export function toTaskRelativePath(targetPath: string): string {
   return normalizeRelativePath(targetPath)
 }
 
-export function buildDevboxUrl(runtimeName: string, port: number): string | null {
-  const template = process.env.DEVBOX_GATEWAY_URL_TEMPLATE?.trim()
-  if (!template) {
+export function buildRuntimePortUrl(baseUrl: string | null | undefined, port: number): string | null {
+  const resolvedBaseUrl = baseUrl?.trim()
+  if (!resolvedBaseUrl) {
     return null
   }
 
-  if (template.includes('{name}') || template.includes('{port}')) {
-    return template.replaceAll('{name}', runtimeName).replaceAll('{port}', String(port))
-  }
-
   try {
-    const url = new URL(template)
-    if (url.port) {
-      url.port = String(port)
-    }
+    const url = new URL(resolvedBaseUrl)
+    url.port = String(port)
     return url.toString()
   } catch {
     return null

@@ -24,7 +24,9 @@ export interface StartedCodexGatewayTurn {
   sessionId: string
   startedAt: Date
   taskId: string
+  threadId: string | null
   transcriptCursor: number
+  turnId: string | null
 }
 
 function sleep(ms: number): Promise<void> {
@@ -40,7 +42,7 @@ function getGatewayWaitTimeoutMs(maxDuration: number | null | undefined): number
 }
 
 function isSuccessfulTurnStatus(status: string | null | undefined): boolean {
-  return status === 'completed' || status === 'succeeded'
+  return status === 'completed' || status === 'succeeded' || status === 'interrupted'
 }
 
 function getTurnTranscriptCursor(
@@ -165,9 +167,11 @@ export async function startCodexGatewayTaskTurn(
 
   const startedAt = new Date()
   const transcriptCursor = getTurnTranscriptCursor(turnResponse.state.transcript)
+  const threadId = turnResponse.state.threadId || gatewayThreadId || null
+  const turnId = turnResponse.state.currentTurnId || null
   const turnWaitingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_WAITING, {
     sessionId: gatewaySessionId,
-    threadId: turnResponse.state.threadId,
+    threadId,
     transcriptCursor,
   })
   await logger.info(turnWaitingLog)
@@ -191,15 +195,19 @@ export async function startCodexGatewayTaskTurn(
   await recordTurnCheckpoint({
     taskId,
     sessionId: gatewaySessionId,
+    threadId,
     transcriptCursor,
     startedAt,
+    turnId,
   })
 
   return {
     taskId,
     sessionId: gatewaySessionId,
     startedAt,
+    threadId,
     transcriptCursor,
+    turnId,
     gatewayUrl,
     gatewayAuthToken,
   }
@@ -247,6 +255,7 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
           success: false,
           error: 'Codex gateway session is no longer available',
           clearGatewaySession: true,
+          turnStatus: finalState?.state.lastTurnStatus || null,
         })
 
         await refreshTaskDevboxLease({
@@ -279,6 +288,7 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
       assistantContent,
       success: false,
       error: 'Codex gateway response timed out',
+      turnStatus: finalState?.state.lastTurnStatus || null,
     })
 
     await refreshTaskDevboxLease({
@@ -300,6 +310,7 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
       assistantContent,
       success: true,
       error: null,
+      turnStatus: finalState.state.lastTurnStatus,
     })
 
     await refreshTaskDevboxLease({
@@ -325,6 +336,7 @@ export async function waitForCodexGatewayTurnCompletion(startedTurn: StartedCode
     assistantContent,
     success: false,
     error: 'Codex gateway turn failed',
+    turnStatus: finalState.state.lastTurnStatus,
   })
 
   await refreshTaskDevboxLease({

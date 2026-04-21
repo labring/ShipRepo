@@ -3,7 +3,12 @@ import { getServerSession } from '@/lib/session/get-server-session'
 import { db } from '@/lib/db/client'
 import { taskMessages, tasks } from '@/lib/db/schema'
 import { eq, and, asc, isNull } from 'drizzle-orm'
-import { hasActiveTurnCheckpoint, reconcileIncompleteTurn } from '@/lib/codex-gateway/completion'
+import {
+  hasActiveTurnCheckpoint,
+  reconcileIncompleteTurnSafely,
+  shouldAttemptTurnReconciliation,
+} from '@/lib/codex-gateway/completion'
+import { reconcileProjectedTaskMessages } from '@/lib/task-event-projection'
 
 export async function GET(req: NextRequest, context: { params: Promise<{ taskId: string }> }) {
   try {
@@ -26,13 +31,19 @@ export async function GET(req: NextRequest, context: { params: Promise<{ taskId:
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
-    if (task[0].selectedAgent === 'codex' && hasActiveTurnCheckpoint(task[0])) {
+    if (
+      task[0].selectedAgent === 'codex' &&
+      hasActiveTurnCheckpoint(task[0]) &&
+      shouldAttemptTurnReconciliation(task[0], 5_000)
+    ) {
       try {
-        await reconcileIncompleteTurn(taskId)
+        await reconcileIncompleteTurnSafely(taskId, 2_500)
       } catch {
         console.error('Failed to reconcile incomplete Codex turn')
       }
     }
+
+    await reconcileProjectedTaskMessages(taskId)
 
     // Fetch all messages for this task, ordered by creation time
     const messages = await db

@@ -183,6 +183,13 @@
       "when": 1776607079323,
       "tag": "0025_spicy_karen_page",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1776685833943,
+      "tag": "0026_marvelous_firelord",
+      "breakpoints": true
     }
   ]
 }

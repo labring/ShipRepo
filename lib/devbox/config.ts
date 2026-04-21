@@ -1,6 +1,6 @@
 import { SignJWT } from 'jose'
+import { getSealosDevboxBaseUrl } from '@/lib/sealos/config'
 
-const DEFAULT_DEVBOX_BASE_URL = 'https://devbox-server.staging-usw-1.sealos.io'
 const DEVBOX_API_PREFIX = '/api/v1/devbox'
 const DEFAULT_DEVBOX_NAMESPACE = 'ns-test'
 const DEFAULT_DEVBOX_TOKEN_TTL_SECONDS = 4 * 60 * 60
@@ -16,7 +16,7 @@ function getRequiredEnv(name: string): string {
 }
 
 export function getDevboxBaseUrl(): string {
-  return process.env.DEVBOX_BASE_URL || DEFAULT_DEVBOX_BASE_URL
+  return getSealosDevboxBaseUrl()
 }
 
 export function getDevboxApiPrefix(): string {

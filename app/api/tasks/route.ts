@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { and, desc, eq, isNull, or } from 'drizzle-orm'
-import { startCodexGatewayTaskTurn, waitForCodexGatewayTurnCompletion } from '@/lib/codex-gateway/runner'
+import { finalizeTaskChatV2Turn, startTaskChatV2Turn } from '@/lib/codex-gateway/chat-v2-service'
 import { FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import { db } from '@/lib/db/client'
 import { insertTaskSchema, tasks } from '@/lib/db/schema'
-import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
 import { getServerSession } from '@/lib/session/get-server-session'
-import { appendTaskMessage } from '@/lib/task-messages'
 import { generateBranchName, createFallbackBranchName } from '@/lib/utils/branch-name-generator'
 import { generateId } from '@/lib/utils/id'
 import { checkRateLimit } from '@/lib/utils/rate-limit'
 import { createTaskLogger } from '@/lib/utils/task-logger'
-import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 import { generateTaskTitle, createFallbackTitle } from '@/lib/utils/title-generator'
 
 export const runtime = 'nodejs'
@@ -190,44 +187,16 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    const logger = createTaskLogger(taskId)
-    let userMessagePersisted = false
-    const userInputReceivedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.USER_INPUT_RECEIVED, {
-      promptChars: validatedData.prompt.length,
-      source: 'task-create',
-      selectedModel,
-    })
-    await logger.info(userInputReceivedLog)
-    console.info(userInputReceivedLog)
-
     try {
-      await appendTaskMessage({
-        taskId,
-        role: 'user',
-        content: validatedData.prompt,
-      })
-      userMessagePersisted = true
-      const userInputSavedLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.USER_INPUT_SAVED, {
-        promptChars: validatedData.prompt.length,
+      const startedTurn = await startTaskChatV2Turn({
+        task: newTask,
+        prompt: validatedData.prompt,
         source: 'task-create',
-      })
-      await logger.info(userInputSavedLog)
-      console.info(userInputSavedLog)
-    } catch {
-      console.error('Failed to persist task user message')
-    }
-
-    try {
-      await ensureTaskDevboxRuntime(newTask, { logger })
-
-      const startedTurn = await startCodexGatewayTaskTurn(taskId, validatedData.prompt, {
-        appendUserMessage: !userMessagePersisted,
-        model: selectedModel,
       })
 
       after(async () => {
         try {
-          await waitForCodexGatewayTurnCompletion(startedTurn)
+          await finalizeTaskChatV2Turn(startedTurn.startedTurn)
         } catch {
           console.error('Failed to finalize Codex task')
 
@@ -240,6 +209,7 @@ export async function POST(request: NextRequest) {
             })
             .where(eq(tasks.id, taskId))
 
+          const logger = createTaskLogger(taskId)
           await logger.error('Failed to finalize Codex task')
         }
       })
@@ -255,6 +225,7 @@ export async function POST(request: NextRequest) {
         })
         .where(eq(tasks.id, taskId))
 
+      const logger = createTaskLogger(taskId)
       await logger.error('Failed to start Codex gateway task')
       return NextResponse.json({ error: 'Failed to start Codex gateway task' }, { status: 500 })
     }

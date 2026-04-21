@@ -41,6 +41,8 @@ export async function getTaskGatewayContext(taskId: string, userId: string) {
       if (!(error instanceof DevboxApiError)) {
         throw error
       }
+
+      console.error('Failed to load Devbox info for gateway context:', error)
     }
   }
 
@@ -71,6 +73,8 @@ export async function getTaskGatewayContextById(taskId: string) {
       if (!(error instanceof DevboxApiError)) {
         throw error
       }
+
+      console.error('Failed to load Devbox info for gateway context by id:', error)
     }
   }
 

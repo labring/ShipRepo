@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
+import { Commissioner, Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { Toaster } from '@/components/ui/sonner'
 import { ThemeProvider } from '@/components/theme-provider'
@@ -19,6 +19,12 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 })
 
+const commissioner = Commissioner({
+  variable: '--font-commissioner',
+  subsets: ['latin'],
+  weight: ['500', '600'],
+})
+
 export const metadata: Metadata = {
   title: 'Analyze and Ship to Sealos',
   description:
@@ -32,7 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${geistSans.variable} ${geistMono.variable} ${commissioner.variable} antialiased`}>
         <JotaiProvider>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
             <SessionProvider />

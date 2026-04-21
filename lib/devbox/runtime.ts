@@ -304,6 +304,7 @@ ${managedCodexConfigToml}EOF`,
   })
   await logger?.info(workspaceBootstrappingLog)
   console.info(workspaceBootstrappingLog)
+  console.info('Devbox workspace bootstrap started')
 
   const startedAt = Date.now()
   let lastPendingError = false
@@ -312,6 +313,7 @@ ${managedCodexConfigToml}EOF`,
     try {
       const runtime = await getDevbox(runtimeName)
       if (runtime.data.state.phase !== 'Running') {
+        console.info('Devbox workspace bootstrap waiting for runtime')
         lastPendingError = true
         if (Date.now() - startedAt >= DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS) {
           break
@@ -320,10 +322,12 @@ ${managedCodexConfigToml}EOF`,
         continue
       }
 
+      console.info('Devbox workspace bootstrap exec started')
       const execResponse = await execDevbox(runtimeName, {
         command: ['sh', '-lc', bootstrapScript.join('\n')],
         timeoutSeconds: 300,
       })
+      console.info('Devbox workspace bootstrap exec finished')
 
       if (execResponse.data.exitCode !== 0) {
         console.error('Devbox workspace bootstrap failed')
@@ -346,6 +350,7 @@ ${managedCodexConfigToml}EOF`,
         error.status === 409 &&
         error.message.includes('devbox pod is not running')
       ) {
+        console.info('Devbox workspace bootstrap waiting for pod')
         lastPendingError = true
         if (Date.now() - startedAt >= DEVBOX_BOOTSTRAP_READY_TIMEOUT_MS) {
           break
@@ -354,14 +359,17 @@ ${managedCodexConfigToml}EOF`,
         continue
       }
 
+      console.error('Devbox workspace bootstrap failed:', error)
       throw error
     }
   }
 
   if (lastPendingError) {
+    console.error('Devbox workspace bootstrap timed out')
     throw new Error('Timed out waiting for Devbox workspace bootstrap')
   }
 
+  console.error('Devbox workspace bootstrap did not complete')
   throw new Error('Devbox workspace bootstrap did not complete')
 }
 

@@ -30,7 +30,7 @@ function createGatewayUnavailableResponse() {
   return NextResponse.json(
     {
       error: 'Gateway URL is not configured',
-      message: 'Set DEVBOX_GATEWAY_URL_TEMPLATE or persist gatewayUrl for this task runtime',
+      message: 'Gateway URL is not available from the Devbox runtime',
     },
     { status: 400 },
   )
