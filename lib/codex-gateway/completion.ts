@@ -1,9 +1,9 @@
-import { eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { CodexGatewayApiError, getCodexGatewaySessionState } from '@/lib/codex-gateway/client'
-import { getAssistantContentAfterCursor } from '@/lib/codex-gateway/transcript'
+import { getAssistantContentAfterCursor, type TranscriptTextEntry } from '@/lib/codex-gateway/transcript'
 import { getTaskGatewayContextById } from '@/lib/codex-gateway/task'
 import { db } from '@/lib/db/client'
-import { tasks, type Task } from '@/lib/db/schema'
+import { taskEvents, tasks, type Task } from '@/lib/db/schema'
 import { projectAssistantMessage } from '@/lib/task-event-projection'
 import { buildProjectedAssistantMessageId } from '@/lib/task-message-ids'
 import { appendProjectedAssistantMessageEvent, recordTaskEvent } from '@/lib/task-events'
@@ -31,6 +31,61 @@ interface FinalizeTurnInput {
   taskId: string
   transcriptCursor: number
   turnStatus?: string | null
+}
+
+interface FinalizeActiveTurnFailureInput {
+  clearGatewaySession?: boolean
+  error: string
+  sessionId?: string | null
+  taskId: string
+}
+
+function parseTranscriptEntries(value: unknown): TranscriptTextEntry[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return []
+    }
+
+    const role = 'role' in entry && typeof entry.role === 'string' ? entry.role : null
+    const text = 'text' in entry && typeof entry.text === 'string' ? entry.text : null
+
+    if (!role || text === null) {
+      return []
+    }
+
+    return [{ role, text }]
+  })
+}
+
+async function getPersistedAssistantContentForTurn(
+  taskId: string,
+  sessionId: string,
+  transcriptCursor: number,
+): Promise<string> {
+  const [latestSnapshotEvent] = await db
+    .select({ payload: taskEvents.payload })
+    .from(taskEvents)
+    .where(
+      and(
+        eq(taskEvents.taskId, taskId),
+        eq(taskEvents.kind, 'gateway.state.snapshot'),
+        eq(taskEvents.sessionId, sessionId),
+      ),
+    )
+    .orderBy(desc(taskEvents.seq))
+    .limit(1)
+
+  const transcript = parseTranscriptEntries(latestSnapshotEvent?.payload?.transcript)
+
+  if (!transcript.length) {
+    return ''
+  }
+
+  return getAssistantContentAfterCursor(transcriptCursor, transcript)
 }
 
 export function hasActiveTurnCheckpoint(task: Task | null | undefined): boolean {
@@ -161,6 +216,34 @@ export async function finalizeTurnCompletion(input: FinalizeTurnInput): Promise<
   return updatedTask || null
 }
 
+export async function finalizeActiveTurnFailure(input: FinalizeActiveTurnFailureInput): Promise<Task | null> {
+  const [task] = await db.select().from(tasks).where(eq(tasks.id, input.taskId)).limit(1)
+
+  if (!task || !hasActiveTurnCheckpoint(task) || !task.activeTurnSessionId || task.status === 'stopped') {
+    return task || null
+  }
+
+  if (input.sessionId && task.activeTurnSessionId !== input.sessionId) {
+    return task
+  }
+
+  const assistantContent = await getPersistedAssistantContentForTurn(
+    input.taskId,
+    task.activeTurnSessionId,
+    task.activeTurnTranscriptCursor!,
+  )
+
+  return await finalizeTurnCompletion({
+    taskId: input.taskId,
+    sessionId: task.activeTurnSessionId,
+    transcriptCursor: task.activeTurnTranscriptCursor!,
+    assistantContent,
+    success: false,
+    error: input.error,
+    clearGatewaySession: input.clearGatewaySession ?? task.gatewaySessionId === task.activeTurnSessionId,
+  })
+}
+
 export async function reconcileIncompleteTurn(taskId: string): Promise<Task | null> {
   const { task, gatewayUrl, gatewayAuthToken } = await getTaskGatewayContextById(taskId)
 
@@ -209,11 +292,17 @@ export async function reconcileIncompleteTurn(taskId: string): Promise<Task | nu
     })
   } catch (error) {
     if (error instanceof CodexGatewayApiError && error.status === 404) {
+      const assistantContent = await getPersistedAssistantContentForTurn(
+        taskId,
+        task.activeTurnSessionId,
+        task.activeTurnTranscriptCursor!,
+      )
+
       return await finalizeTurnCompletion({
         taskId,
         sessionId: task.activeTurnSessionId,
         transcriptCursor: task.activeTurnTranscriptCursor!,
-        assistantContent: '',
+        assistantContent,
         success: false,
         error: 'Codex gateway session is no longer available',
         clearGatewaySession: true,

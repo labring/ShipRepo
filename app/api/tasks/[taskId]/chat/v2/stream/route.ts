@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { reconcileIncompleteTurnSafely } from '@/lib/codex-gateway/completion'
+import { finalizeActiveTurnFailure, reconcileIncompleteTurnSafely } from '@/lib/codex-gateway/completion'
 import { getCodexGatewayEventStreamUrl } from '@/lib/codex-gateway/client'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 import type { CodexGatewayState } from '@/lib/codex-gateway/types'
@@ -139,6 +139,17 @@ async function persistGatewayEvent(input: {
   }
 }
 
+async function persistMissingSessionFailure(taskId: string, sessionId: string) {
+  await finalizeActiveTurnFailure({
+    taskId,
+    sessionId,
+    error: 'Codex gateway session is no longer available',
+    clearGatewaySession: true,
+  }).catch(() => {
+    console.error('Failed to persist missing Codex gateway session')
+  })
+}
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const decoder = new TextDecoder()
   let streamId: string | null = null
@@ -190,6 +201,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     if (!upstream.ok || !upstream.body) {
       await closeTaskStream(resolvedStreamId, 'errored')
+
+      if (upstream.status === 404 || upstream.status === 410) {
+        await persistMissingSessionFailure(resolvedTaskId, stream.sessionId)
+      } else {
+        await reconcileIncompleteTurnSafely(resolvedTaskId, 2_500).catch(() => {
+          console.error('Failed to reconcile chat v2 stream connection error')
+        })
+      }
+
       return NextResponse.json({ error: 'Failed to connect to Codex gateway events' }, { status: 502 })
     }
 
@@ -271,6 +291,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           controller.close()
         } catch (error) {
           await closeTaskStream(resolvedStreamId, 'errored')
+          await reconcileIncompleteTurnSafely(resolvedTaskId, 2_500).catch(() => {
+            console.error('Failed to reconcile chat v2 stream reader error')
+          })
           try {
             controller.close()
           } catch {
@@ -293,6 +316,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (streamId) {
       await closeTaskStream(streamId, 'errored').catch(() => {
         console.error('Failed to close chat v2 stream after proxy error')
+      })
+    }
+
+    if (taskId) {
+      await reconcileIncompleteTurnSafely(taskId, 2_500).catch(() => {
+        console.error('Failed to reconcile chat v2 stream proxy error')
       })
     }
 
