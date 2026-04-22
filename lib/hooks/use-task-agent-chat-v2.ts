@@ -99,6 +99,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
   )
   const [retainedStreamingMessage, setRetainedStreamingMessage] = useState<TaskMessage | null>(null)
   const [activeStream, setActiveStream] = useState<TaskChatV2StreamDescriptor | null>(null)
+  const [streamReconnectNonce, setStreamReconnectNonce] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isSending, setIsSending] = useState(false)
@@ -226,13 +227,45 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
     const source = new EventSource(streamUrl)
     eventSourceRef.current = source
 
+    const closeSource = () => {
+      source.close()
+
+      if (eventSourceRef.current === source) {
+        eventSourceRef.current = null
+      }
+    }
+
+    const scheduleReconnect = () => {
+      clearReconnectTimer()
+      closeSource()
+
+      const nextAttempt = reconnectAttemptRef.current + 1
+      reconnectAttemptRef.current = nextAttempt
+      const reconnectDelayMs = Math.min(1000 * nextAttempt, 5000)
+
+      reconnectTimeoutRef.current = window.setTimeout(() => {
+        reconnectTimeoutRef.current = null
+        setStreamReconnectNonce((previousValue) => previousValue + 1)
+        void refreshChat(false)
+      }, reconnectDelayMs)
+    }
+
     source.onopen = () => {
       clearReconnectTimer()
       reconnectAttemptRef.current = 0
     }
 
     source.addEventListener('state', (event) => {
-      const nextState = JSON.parse(event.data) as CodexGatewayState
+      let nextState: CodexGatewayState
+
+      try {
+        nextState = JSON.parse(event.data) as CodexGatewayState
+      } catch (error) {
+        console.error('Chat v2 state event payload parse failed', error)
+        scheduleReconnect()
+        return
+      }
+
       const nextIdentity = liveTurnIdentity || taskCheckpointIdentity
       const nextStreamingMessage = buildStreamingAgentMessageFromState(taskId, nextState, nextIdentity)
 
@@ -257,11 +290,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
         reconnectAttemptRef.current = 0
         setActiveStream(null)
         setLiveTurnIdentity(null)
-        source.close()
-
-        if (eventSourceRef.current === source) {
-          eventSourceRef.current = null
-        }
+        closeSource()
 
         void refreshChat(false)
       }
@@ -272,11 +301,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
       reconnectAttemptRef.current = 0
       setActiveStream(null)
       setLiveTurnIdentity(null)
-      source.close()
-
-      if (eventSourceRef.current === source) {
-        eventSourceRef.current = null
-      }
+      closeSource()
 
       void refreshChat(false)
     })
@@ -286,32 +311,22 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
         return
       }
 
-      clearReconnectTimer()
-      source.close()
-
-      if (eventSourceRef.current === source) {
-        eventSourceRef.current = null
-      }
-
-      const nextAttempt = reconnectAttemptRef.current + 1
-      reconnectAttemptRef.current = nextAttempt
-      const reconnectDelayMs = Math.min(1000 * nextAttempt, 5000)
-
-      reconnectTimeoutRef.current = window.setTimeout(() => {
-        reconnectTimeoutRef.current = null
-        void refreshChat(false)
-      }, reconnectDelayMs)
+      scheduleReconnect()
     }
 
     return () => {
       clearReconnectTimer()
-      source.close()
-
-      if (eventSourceRef.current === source) {
-        eventSourceRef.current = null
-      }
+      closeSource()
     }
-  }, [activeStream, clearReconnectTimer, liveTurnIdentity, refreshChat, taskCheckpointIdentity, taskId])
+  }, [
+    activeStream,
+    clearReconnectTimer,
+    liveTurnIdentity,
+    refreshChat,
+    streamReconnectNonce,
+    taskCheckpointIdentity,
+    taskId,
+  ])
 
   const sendMessage = useCallback(
     async (content: string): Promise<ChatActionResult> => {

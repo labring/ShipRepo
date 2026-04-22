@@ -1,14 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { finalizeActiveTurnFailure, reconcileIncompleteTurnSafely } from '@/lib/codex-gateway/completion'
 import { getCodexGatewayEventStreamUrl } from '@/lib/codex-gateway/client'
+import { diagnoseCodexTurnFailure } from '@/lib/codex-gateway/failure-diagnostics'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 import type { CodexGatewayState } from '@/lib/codex-gateway/types'
 import { closeTaskStream, getTaskStream, recordTaskEvent, touchTaskStream } from '@/lib/task-events'
+import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 import { getServerSession } from '@/lib/session/get-server-session'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
-export const maxDuration = 300
+export const maxDuration = 1800
+
+const STREAM_HEARTBEAT_INTERVAL_MS = 10_000
 
 interface RouteParams {
   params: Promise<{
@@ -61,6 +65,10 @@ function parseSseBlock(block: string): {
     eventName,
     dataText: dataLines.join('\n'),
   }
+}
+
+function encodeSseBlock(encoder: TextEncoder, block: string): Uint8Array {
+  return encoder.encode(`${block}\n\n`)
 }
 
 async function persistGatewayEvent(input: {
@@ -150,9 +158,38 @@ async function persistMissingSessionFailure(taskId: string, sessionId: string) {
   })
 }
 
+async function logStreamFailureDiagnostic(input: {
+  fallbackError: string
+  httpStatus?: number
+  sessionId?: string | null
+  taskId: string
+  turnStatus?: string | null
+}) {
+  const diagnostic = await diagnoseCodexTurnFailure({
+    taskId: input.taskId,
+    sessionId: input.sessionId,
+    fallbackError: input.fallbackError,
+    httpStatus: input.httpStatus,
+    turnStatus: input.turnStatus,
+  })
+
+  console.info(
+    formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_STREAM_RECONNECTING, {
+      sessionId: input.sessionId ?? null,
+      streamState: 'errored',
+      errorSource: diagnostic.source,
+      httpStatus: input.httpStatus,
+      turnStatus: input.turnStatus ?? null,
+    }),
+  )
+  console.error('Chat v2 stream upstream failed', diagnostic)
+}
+
 export async function GET(request: NextRequest, { params }: RouteParams) {
   const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
   let streamId: string | null = null
+  let streamSessionId: string | null = null
   let taskId: string | null = null
 
   try {
@@ -175,6 +212,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     if (!stream || stream.taskId !== resolvedTaskId || stream.status !== 'active') {
       return NextResponse.json({ error: 'Stream not found' }, { status: 404 })
     }
+    streamSessionId = stream.sessionId
 
     const { task, gatewayUrl, gatewayAuthToken } = await getTaskGatewayContext(resolvedTaskId, session.user.id)
 
@@ -191,16 +229,33 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Stream session is no longer active' }, { status: 410 })
     }
 
+    const streamState =
+      stream.lastEventAt.getTime() > stream.startedAt.getTime() ? ('resumed' as const) : ('connected' as const)
+    console.info(
+      formatKeyTaskLogMessage(
+        streamState === 'resumed' ? TASK_FLOW_LOGS.GATEWAY_STREAM_RESUMED : TASK_FLOW_LOGS.GATEWAY_STREAM_CONNECTED,
+        {
+          sessionId: stream.sessionId,
+          streamState,
+        },
+      ),
+    )
+
     const upstream = await fetch(getCodexGatewayEventStreamUrl(gatewayUrl, stream.sessionId, gatewayAuthToken), {
       headers: {
         accept: 'text/event-stream',
       },
       cache: 'no-store',
-      signal: AbortSignal.timeout(15_000),
     })
 
     if (!upstream.ok || !upstream.body) {
       await closeTaskStream(resolvedStreamId, 'errored')
+      await logStreamFailureDiagnostic({
+        taskId: resolvedTaskId,
+        sessionId: stream.sessionId,
+        fallbackError: 'Codex gateway turn failed',
+        httpStatus: upstream.status,
+      })
 
       if (upstream.status === 404 || upstream.status === 410) {
         await persistMissingSessionFailure(resolvedTaskId, stream.sessionId)
@@ -226,11 +281,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const reader = upstream.body.getReader()
     let sseBuffer = ''
+    const heartbeatChunk = encoder.encode(': ping\n\n')
 
     const handleSseBlock = async (block: string) => {
       const parsedBlock = parseSseBlock(block)
       if (!parsedBlock || !parsedBlock.dataText) {
-        return
+        return encodeSseBlock(encoder, block)
       }
 
       try {
@@ -243,12 +299,16 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
           payload,
           transcriptCursor,
         })
-      } catch {
-        console.error('Failed to persist gateway stream event')
+      } catch (error) {
+        console.error('Failed to persist gateway stream event', error)
       }
+
+      return encodeSseBlock(encoder, block)
     }
 
     const flushBufferedEvents = async (flushAll: boolean) => {
+      const encodedBlocks: Uint8Array[] = []
+
       while (true) {
         const separatorMatch = sseBuffer.match(/\r?\n\r?\n/)
         if (!separatorMatch || separatorMatch.index === undefined) {
@@ -257,18 +317,32 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
         const block = sseBuffer.slice(0, separatorMatch.index)
         sseBuffer = sseBuffer.slice(separatorMatch.index + separatorMatch[0].length)
-        await handleSseBlock(block)
+        encodedBlocks.push(await handleSseBlock(block))
       }
 
       if (flushAll && sseBuffer.trim()) {
-        const finalBlock = sseBuffer
+        console.error('Chat v2 stream ended with incomplete SSE block')
         sseBuffer = ''
-        await handleSseBlock(finalBlock)
       }
+
+      return encodedBlocks
     }
 
     const streamResponse = new ReadableStream<Uint8Array>({
       async start(controller) {
+        let closed = false
+        const heartbeatTimer = setInterval(() => {
+          if (closed || sseBuffer.trim()) {
+            return
+          }
+
+          try {
+            controller.enqueue(heartbeatChunk)
+          } catch {
+            // Ignore enqueue errors after stream shutdown.
+          }
+        }, STREAM_HEARTBEAT_INTERVAL_MS)
+
         try {
           while (true) {
             const { done, value } = await reader.read()
@@ -281,25 +355,39 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
               continue
             }
 
-            controller.enqueue(value)
             sseBuffer += decoder.decode(value, { stream: true })
-            await flushBufferedEvents(false)
+            const encodedBlocks = await flushBufferedEvents(false)
+            for (const encodedBlock of encodedBlocks) {
+              controller.enqueue(encodedBlock)
+            }
           }
 
           sseBuffer += decoder.decode()
-          await flushBufferedEvents(true)
+          const encodedBlocks = await flushBufferedEvents(true)
+          for (const encodedBlock of encodedBlocks) {
+            controller.enqueue(encodedBlock)
+          }
+          closed = true
           controller.close()
         } catch (error) {
           await closeTaskStream(resolvedStreamId, 'errored')
+          await logStreamFailureDiagnostic({
+            taskId: resolvedTaskId,
+            sessionId: stream.sessionId,
+            fallbackError: 'Codex gateway turn failed',
+          })
           await reconcileIncompleteTurnSafely(resolvedTaskId, 2_500).catch(() => {
             console.error('Failed to reconcile chat v2 stream reader error')
           })
           try {
+            closed = true
             controller.close()
           } catch {
             // Ignore close errors after upstream socket termination.
           }
         } finally {
+          closed = true
+          clearInterval(heartbeatTimer)
           reader.releaseLock()
         }
       },
@@ -320,6 +408,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     if (taskId) {
+      await logStreamFailureDiagnostic({
+        taskId,
+        sessionId: streamSessionId,
+        fallbackError: 'Codex gateway turn failed',
+      }).catch(() => {
+        console.error('Failed to log chat v2 stream proxy diagnostic')
+      })
       await reconcileIncompleteTurnSafely(taskId, 2_500).catch(() => {
         console.error('Failed to reconcile chat v2 stream proxy error')
       })

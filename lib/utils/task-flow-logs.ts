@@ -8,9 +8,13 @@ export const TASK_FLOW_LOGS = {
   DEVBOX_RUNTIME_READY: '[KEY][DEVBOX] Runtime ready',
   GATEWAY_SESSION_PREPARING: '[KEY][GATEWAY] Preparing session',
   GATEWAY_SESSION_READY: '[KEY][GATEWAY] Session ready',
+  GATEWAY_STREAM_CONNECTED: '[KEY][GATEWAY] Stream connected',
+  GATEWAY_STREAM_RECONNECTING: '[KEY][GATEWAY] Stream reconnecting',
+  GATEWAY_STREAM_RESUMED: '[KEY][GATEWAY] Stream resumed',
   GATEWAY_TURN_SENDING: '[KEY][GATEWAY] Sending user input',
   GATEWAY_TURN_WAITING: '[KEY][GATEWAY] Waiting for response',
   GATEWAY_TURN_COMPLETED: '[KEY][GATEWAY] Response received',
+  GATEWAY_TURN_FAILED: '[KEY][GATEWAY] Response failed',
 } as const
 
 const KEY_TASK_LOG_PATTERN = /^\[KEY\]\[(USER|DEVBOX|GATEWAY)\]\s*([^|]*?)(?:\s+\|\s+(.+))?$/
@@ -23,8 +27,11 @@ const KEY_TASK_LOG_METADATA_KEYS = [
   'sessionId',
   'threadId',
   'selectedModel',
+  'streamState',
   'transcriptCursor',
   'turnStatus',
+  'errorSource',
+  'httpStatus',
   'installedSkill',
 ] as const
 
