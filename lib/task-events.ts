@@ -8,14 +8,12 @@ import {
   type TaskStream,
   type TaskStreamStatus,
 } from '@/lib/db/schema'
-import {
-  buildProjectedAssistantMessageId,
-  projectAssistantMessage,
-  projectUserMessageFromEvent,
-} from '@/lib/task-event-projection'
+import { projectAssistantMessage, projectUserMessageFromEvent } from '@/lib/task-event-projection'
+import { buildProjectedAssistantMessageId } from '@/lib/task-message-ids'
 import { generateId } from '@/lib/utils/id'
 
 interface RecordTaskEventInput {
+  clientMessageId?: string | null
   createdAt?: Date
   kind: TaskEventKind
   payload?: Record<string, unknown> | null
@@ -39,6 +37,18 @@ export async function recordTaskEvent(input: RecordTaskEventInput): Promise<Task
   return await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${input.taskId}))`)
 
+    if (input.clientMessageId) {
+      const [existingEvent] = await tx
+        .select()
+        .from(taskEvents)
+        .where(and(eq(taskEvents.taskId, input.taskId), eq(taskEvents.clientMessageId, input.clientMessageId)))
+        .limit(1)
+
+      if (existingEvent) {
+        return existingEvent
+      }
+    }
+
     const [latestEvent] = await tx
       .select({ seq: taskEvents.seq })
       .from(taskEvents)
@@ -55,6 +65,7 @@ export async function recordTaskEvent(input: RecordTaskEventInput): Promise<Task
       sessionId: input.sessionId ?? undefined,
       threadId: input.threadId ?? undefined,
       turnId: input.turnId ?? undefined,
+      clientMessageId: input.clientMessageId ?? undefined,
       payload: input.payload ?? null,
       createdAt: input.createdAt,
     }
@@ -66,6 +77,7 @@ export async function recordTaskEvent(input: RecordTaskEventInput): Promise<Task
 }
 
 export async function appendUserMessageEvent(input: {
+  clientMessageId?: string
   content: string
   createdAt?: Date
   source: string
@@ -74,8 +86,10 @@ export async function appendUserMessageEvent(input: {
   const event = await recordTaskEvent({
     taskId: input.taskId,
     kind: 'user_message.created',
+    clientMessageId: input.clientMessageId,
     createdAt: input.createdAt,
     payload: {
+      clientMessageId: input.clientMessageId,
       content: input.content,
       source: input.source,
     },

@@ -25,6 +25,14 @@ interface MergePRDialogProps {
   onMergeInitiated?: () => void
 }
 
+function buildClientMessageId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}:${crypto.randomUUID()}`
+  }
+
+  return `${prefix}:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
 export function MergePRDialog({
   taskId,
   prUrl: _prUrl,
@@ -89,13 +97,14 @@ export function MergePRDialog({
 
     try {
       // Send a follow-up message to the current task to fix merge conflicts
-      const response = await fetch(`/api/tasks/${taskId}/continue`, {
+      const response = await fetch(`/api/tasks/${taskId}/chat/v2`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message:
+          clientMessageId: buildClientMessageId('merge-conflict-follow-up'),
+          prompt:
             'Fix merge conflicts in the current branch and prepare it for merging. Review the conflicting changes carefully and resolve them intelligently, preserving the intent of both sets of changes where possible.',
         }),
       })

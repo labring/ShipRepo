@@ -16,6 +16,7 @@ export interface StartTaskChatV2TurnResult {
 }
 
 export async function startTaskChatV2Turn(input: {
+  clientMessageId?: string
   prompt: string
   source: string
   task: Task
@@ -31,6 +32,7 @@ export async function startTaskChatV2Turn(input: {
 
   await appendUserMessageEvent({
     taskId: input.task.id,
+    clientMessageId: input.clientMessageId,
     content: input.prompt,
     source: input.source,
   })

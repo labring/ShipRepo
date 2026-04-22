@@ -1,14 +1,14 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
-import { getAssistantContentAfterCursor } from '@/lib/codex-gateway/transcript'
 import { db } from '@/lib/db/client'
 import { taskEvents, taskMessages, type TaskEvent } from '@/lib/db/schema'
+import {
+  buildProjectedAssistantMessageId,
+  buildTaskClientMessageId,
+  buildTaskEventUserMessageId,
+} from '@/lib/task-message-ids'
 import { generateId } from '@/lib/utils/id'
 
-const PROJECTABLE_EVENT_KINDS = [
-  'user_message.created',
-  'assistant.message.projected',
-  'gateway.state.snapshot',
-] as const
+const PROJECTABLE_EVENT_KINDS = ['user_message.created', 'assistant.message.projected'] as const
 
 function parseTranscriptCursor(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -23,56 +23,40 @@ function parseTranscriptCursor(value: unknown): number | null {
   return null
 }
 
-function extractProjectedAssistantSnapshot(event: TaskEvent): {
-  content: string
-  messageId?: string
-} | null {
-  const payload = event.payload || null
-  const sessionId = typeof payload?.sessionId === 'string' ? payload.sessionId : event.sessionId || undefined
-  const transcriptCursor = parseTranscriptCursor(payload?.transcriptCursor)
-
-  if (!sessionId || transcriptCursor === null) {
-    return null
-  }
-
-  const transcriptValue = payload?.transcript
-  if (!Array.isArray(transcriptValue)) {
-    return null
-  }
-
-  const transcript = transcriptValue.flatMap((entry) => {
-    if (!entry || typeof entry !== 'object' || typeof entry.role !== 'string' || typeof entry.text !== 'string') {
-      return []
-    }
-
-    return [{ role: entry.role, text: entry.text }]
-  })
-
-  const content = getAssistantContentAfterCursor(transcriptCursor, transcript)
-  if (!content) {
-    return null
-  }
-
-  return {
-    content,
-    messageId: buildProjectedAssistantMessageId(sessionId, transcriptCursor),
-  }
-}
-
-export function buildTaskEventUserMessageId(eventId: string): string {
-  return `task-user-event-${eventId}`
-}
-
-export function buildProjectedAssistantMessageId(sessionId: string, transcriptCursor: number): string {
-  return `codex-agent-${sessionId}-${transcriptCursor}`
-}
-
 export async function projectUserMessageFromEvent(
-  event: Pick<TaskEvent, 'id' | 'taskId' | 'payload' | 'createdAt'>,
+  event: Pick<TaskEvent, 'id' | 'taskId' | 'payload' | 'createdAt' | 'clientMessageId'>,
 ): Promise<void> {
   const content = typeof event.payload?.content === 'string' ? event.payload.content.trim() : ''
+  const clientMessageId =
+    typeof event.clientMessageId === 'string' && event.clientMessageId.trim()
+      ? event.clientMessageId.trim()
+      : typeof event.payload?.clientMessageId === 'string' && event.payload.clientMessageId.trim()
+        ? event.payload.clientMessageId.trim()
+        : null
 
   if (!content) {
+    return
+  }
+
+  if (clientMessageId) {
+    await db
+      .insert(taskMessages)
+      .values({
+        id: buildTaskClientMessageId(clientMessageId),
+        taskId: event.taskId,
+        role: 'user',
+        content,
+        clientMessageId,
+        createdAt: event.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: [taskMessages.taskId, taskMessages.clientMessageId],
+        set: {
+          content,
+          createdAt: event.createdAt,
+        },
+      })
+
     return
   }
 
@@ -153,20 +137,17 @@ export async function reconcileProjectedTaskMessages(taskId: string): Promise<vo
       continue
     }
 
-    const projectedSnapshot =
-      event.kind === 'gateway.state.snapshot'
-        ? extractProjectedAssistantSnapshot(event)
-        : {
-            content: typeof event.payload?.content === 'string' ? event.payload.content.trim() : '',
-            messageId:
-              (typeof event.payload?.sessionId === 'string' ? event.payload.sessionId : event.sessionId) &&
-              parseTranscriptCursor(event.payload?.transcriptCursor) !== null
-                ? buildProjectedAssistantMessageId(
-                    (typeof event.payload?.sessionId === 'string' ? event.payload.sessionId : event.sessionId)!,
-                    parseTranscriptCursor(event.payload?.transcriptCursor)!,
-                  )
-                : undefined,
-          }
+    const projectedSnapshot = {
+      content: typeof event.payload?.content === 'string' ? event.payload.content.trim() : '',
+      messageId:
+        (typeof event.payload?.sessionId === 'string' ? event.payload.sessionId : event.sessionId) &&
+        parseTranscriptCursor(event.payload?.transcriptCursor) !== null
+          ? buildProjectedAssistantMessageId(
+              (typeof event.payload?.sessionId === 'string' ? event.payload.sessionId : event.sessionId)!,
+              parseTranscriptCursor(event.payload?.transcriptCursor)!,
+            )
+          : undefined,
+    }
 
     if (!projectedSnapshot?.content.trim()) {
       continue

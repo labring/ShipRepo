@@ -206,6 +206,31 @@ function buildSummaryEventItem(summaryEvent: CodexGatewaySummaryEvent, index: nu
   }
 }
 
+function buildSummaryItemsFromSnapshotEvent(event: TaskEvent): TaskAgentActivityItem[] {
+  const recentEvents = Array.isArray(event.payload?.recentEvents) ? event.payload.recentEvents : []
+
+  return recentEvents.flatMap((summaryEvent, index) => {
+    if (!summaryEvent || typeof summaryEvent !== 'object') {
+      return []
+    }
+
+    const item = buildSummaryEventItem(
+      {
+        at: normalizeOccurredAt(summaryEvent.at, event.createdAt),
+        type: typeof summaryEvent.type === 'string' ? summaryEvent.type : 'event',
+        method: typeof summaryEvent.method === 'string' ? summaryEvent.method : null,
+        itemType: typeof summaryEvent.itemType === 'string' ? summaryEvent.itemType : null,
+        itemId: typeof summaryEvent.itemId === 'string' ? summaryEvent.itemId : null,
+        status: typeof summaryEvent.status === 'string' ? summaryEvent.status : null,
+        textPreview: typeof summaryEvent.textPreview === 'string' ? summaryEvent.textPreview : null,
+      },
+      index,
+    )
+
+    return item ? [item] : []
+  })
+}
+
 function buildTaskEventItem(event: TaskEvent): TaskAgentActivityItem | null {
   if (event.kind === 'gateway.warning') {
     return {
@@ -267,34 +292,10 @@ function buildTaskEventItem(event: TaskEvent): TaskAgentActivityItem | null {
 
 export function buildAgentActivityItemsFromTaskEvents(events: TaskEvent[]): TaskAgentActivityItem[] {
   const items: TaskAgentActivityItem[] = []
+  const latestStateSnapshot = [...events].reverse().find((event) => event.kind === 'gateway.state.snapshot')
 
   for (const event of events) {
     if (event.kind === 'gateway.state.snapshot') {
-      const recentEvents = Array.isArray(event.payload?.recentEvents) ? event.payload.recentEvents : []
-
-      for (const [index, summaryEvent] of recentEvents.entries()) {
-        if (!summaryEvent || typeof summaryEvent !== 'object') {
-          continue
-        }
-
-        const item = buildSummaryEventItem(
-          {
-            at: normalizeOccurredAt(summaryEvent.at, event.createdAt),
-            type: typeof summaryEvent.type === 'string' ? summaryEvent.type : 'event',
-            method: typeof summaryEvent.method === 'string' ? summaryEvent.method : null,
-            itemType: typeof summaryEvent.itemType === 'string' ? summaryEvent.itemType : null,
-            itemId: typeof summaryEvent.itemId === 'string' ? summaryEvent.itemId : null,
-            status: typeof summaryEvent.status === 'string' ? summaryEvent.status : null,
-            textPreview: typeof summaryEvent.textPreview === 'string' ? summaryEvent.textPreview : null,
-          },
-          index,
-        )
-
-        if (item) {
-          items.push(item)
-        }
-      }
-
       continue
     }
 
@@ -304,19 +305,24 @@ export function buildAgentActivityItemsFromTaskEvents(events: TaskEvent[]): Task
     }
   }
 
-  const seenIds = new Set<string>()
+  if (latestStateSnapshot) {
+    items.push(...buildSummaryItemsFromSnapshotEvent(latestStateSnapshot))
+  }
 
-  return items
-    .toSorted((left, right) => left.occurredAt.localeCompare(right.occurredAt))
-    .filter((item) => {
-      const key = `${item.label}|${item.detail}|${item.occurredAt}`
-      if (seenIds.has(key)) {
-        return false
-      }
+  const latestByIdentity = new Map<string, TaskAgentActivityItem>()
 
-      seenIds.add(key)
-      return true
-    })
+  for (const item of items) {
+    const identityKey = `${item.groupKey}|${item.label}|${item.detail}`
+    const previousItem = latestByIdentity.get(identityKey)
+
+    if (!previousItem || previousItem.occurredAt.localeCompare(item.occurredAt) <= 0) {
+      latestByIdentity.set(identityKey, item)
+    }
+  }
+
+  return Array.from(latestByIdentity.values()).toSorted((left, right) =>
+    left.occurredAt.localeCompare(right.occurredAt),
+  )
 }
 
 export function buildAgentActivityItemsFromState(state: CodexGatewayState | null): TaskAgentActivityItem[] {

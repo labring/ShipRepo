@@ -1,8 +1,8 @@
-import { after, NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { and, asc, eq, isNull } from 'drizzle-orm'
 import { z } from 'zod'
 import { CodexGatewayApiError } from '@/lib/codex-gateway/client'
-import { finalizeTaskChatV2Turn, startTaskChatV2Turn } from '@/lib/codex-gateway/chat-v2-service'
+import { startTaskChatV2Turn } from '@/lib/codex-gateway/chat-v2-service'
 import {
   hasActiveTurnCheckpoint,
   reconcileIncompleteTurnSafely,
@@ -25,6 +25,7 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
 const turnSchema = z.object({
+  clientMessageId: z.string().trim().min(1).optional(),
   prompt: z.string().trim().min(1, 'Prompt is required'),
 })
 
@@ -158,25 +159,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     const result = await startTaskChatV2Turn({
       task,
+      clientMessageId: parsed.data.clientMessageId,
       prompt: parsed.data.prompt,
       source: 'chat-v2',
-    })
-
-    after(async () => {
-      try {
-        await finalizeTaskChatV2Turn(result.startedTurn)
-      } catch (error) {
-        console.error('Failed to finalize chat v2 turn:', error)
-
-        await db
-          .update(tasks)
-          .set({
-            status: 'error',
-            error: 'Failed to finalize chat turn',
-            updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, resolvedTaskId))
-      }
     })
 
     return NextResponse.json({

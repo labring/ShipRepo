@@ -93,6 +93,12 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         // Log the stop request
         await logger.info('Stop request received - terminating task execution...')
 
+        if (hasActiveTurnCheckpoint(existingTask)) {
+          await reconcileIncompleteTurnSafely(taskId, 1_500).catch(() => {
+            console.error('Failed to reconcile task before stop')
+          })
+        }
+
         const { gatewayUrl, gatewayAuthToken } = await getTaskGatewayContext(taskId, session.user.id)
 
         if (existingTask.gatewaySessionId && gatewayUrl) {

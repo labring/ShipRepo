@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import { and, desc, eq, isNull, or } from 'drizzle-orm'
-import { finalizeTaskChatV2Turn, startTaskChatV2Turn } from '@/lib/codex-gateway/chat-v2-service'
+import { startTaskChatV2Turn } from '@/lib/codex-gateway/chat-v2-service'
 import { FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import { db } from '@/lib/db/client'
 import { insertTaskSchema, tasks } from '@/lib/db/schema'
@@ -188,30 +188,11 @@ export async function POST(request: NextRequest) {
     })
 
     try {
-      const startedTurn = await startTaskChatV2Turn({
+      await startTaskChatV2Turn({
         task: newTask,
+        clientMessageId: `task-create:${taskId}`,
         prompt: validatedData.prompt,
         source: 'task-create',
-      })
-
-      after(async () => {
-        try {
-          await finalizeTaskChatV2Turn(startedTurn.startedTurn)
-        } catch {
-          console.error('Failed to finalize Codex task')
-
-          await db
-            .update(tasks)
-            .set({
-              status: 'error',
-              error: 'Failed to finalize Codex task',
-              updatedAt: new Date(),
-            })
-            .where(eq(tasks.id, taskId))
-
-          const logger = createTaskLogger(taskId)
-          await logger.error('Failed to finalize Codex task')
-        }
       })
     } catch {
       console.error('Failed to start Codex task')

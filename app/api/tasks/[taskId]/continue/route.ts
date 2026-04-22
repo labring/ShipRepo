@@ -1,14 +1,15 @@
-import { NextRequest, NextResponse, after } from 'next/server'
 import { and, eq, isNull } from 'drizzle-orm'
+import { NextRequest, NextResponse } from 'next/server'
+import { startTaskChatV2Turn } from '@/lib/codex-gateway/chat-v2-service'
 import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
-import { startCodexGatewayTaskTurn, waitForCodexGatewayTurnCompletion } from '@/lib/codex-gateway/runner'
-import { ensureTaskDevboxRuntime } from '@/lib/devbox/runtime'
-import { prependSealosDeployContext } from '@/lib/sealos-deploy-context'
-import { checkRateLimit } from '@/lib/utils/rate-limit'
-import { createTaskLogger } from '@/lib/utils/task-logger'
 import { getServerSession } from '@/lib/session/get-server-session'
-import { appendTaskMessage } from '@/lib/task-messages'
+import { generateId } from '@/lib/utils/id'
+import { checkRateLimit } from '@/lib/utils/rate-limit'
+
+function buildCompatClientMessageId(): string {
+  return `continue-compat:${generateId(16)}`
+}
 
 export async function POST(req: NextRequest, context: { params: Promise<{ taskId: string }> }) {
   try {
@@ -32,14 +33,15 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
     }
 
     const { taskId } = await context.params
-    const body = await req.json()
-    const { message } = body
+    const body = (await req.json().catch(() => ({}))) as {
+      clientMessageId?: string
+      message?: unknown
+    }
+    const message = typeof body.message === 'string' ? body.message.trim() : ''
 
-    if (!message || typeof message !== 'string' || !message.trim()) {
+    if (!message) {
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
     }
-
-    const trimmedMessage = message.trim()
 
     const [task] = await db
       .select()
@@ -55,57 +57,14 @@ export async function POST(req: NextRequest, context: { params: Promise<{ taskId
       return NextResponse.json({ error: 'Unsupported agent' }, { status: 400 })
     }
 
-    let userMessagePersisted = false
-
-    try {
-      await appendTaskMessage({
-        taskId,
-        role: 'user',
-        content: trimmedMessage,
-      })
-      userMessagePersisted = true
-    } catch {
-      console.error('Failed to persist follow-up user message')
-    }
-
-    await db
-      .update(tasks)
-      .set({
-        status: 'processing',
-        progress: 0,
-        error: null,
-        completedAt: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(tasks.id, taskId))
-
-    after(async () => {
-      const logger = createTaskLogger(taskId)
-
-      try {
-        const runtime = await ensureTaskDevboxRuntime(task, { logger })
-        const gatewayPrompt = prependSealosDeployContext(trimmedMessage, runtime.namespace || task.runtimeNamespace)
-
-        const startedTurn = await startCodexGatewayTaskTurn(taskId, gatewayPrompt, {
-          appendUserMessage: !userMessagePersisted,
-          model: task.selectedModel,
-        })
-
-        await waitForCodexGatewayTurnCompletion(startedTurn)
-      } catch {
-        console.error('Failed to finalize Codex gateway follow-up')
-
-        await db
-          .update(tasks)
-          .set({
-            status: 'error',
-            error: 'Failed to finalize Codex gateway follow-up',
-            updatedAt: new Date(),
-          })
-          .where(eq(tasks.id, taskId))
-
-        await logger.error('Failed to finalize Codex gateway follow-up')
-      }
+    await startTaskChatV2Turn({
+      task,
+      clientMessageId:
+        typeof body.clientMessageId === 'string' && body.clientMessageId.trim()
+          ? body.clientMessageId.trim()
+          : buildCompatClientMessageId(),
+      prompt: message,
+      source: 'continue-compat',
     })
 
     return NextResponse.json({ success: true })
