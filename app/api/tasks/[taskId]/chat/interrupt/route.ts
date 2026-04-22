@@ -1,7 +1,7 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { CodexGatewayApiError, interruptCodexGatewayTurn } from '@/lib/codex-gateway/client'
-import { hasActiveTurnCheckpoint } from '@/lib/codex-gateway/completion'
+import { hasActiveTurnCheckpoint, reconcileIncompleteTurnSafely } from '@/lib/codex-gateway/completion'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
@@ -49,6 +49,9 @@ export async function POST(_request: Request, { params }: RouteParams) {
     }
 
     const result = await interruptCodexGatewayTurn(gatewayUrl, task.activeTurnSessionId, gatewayAuthToken)
+    await reconcileIncompleteTurnSafely(taskId, 2_500).catch(() => {
+      console.error('Failed to reconcile interrupted chat turn')
+    })
 
     return NextResponse.json({
       success: true,

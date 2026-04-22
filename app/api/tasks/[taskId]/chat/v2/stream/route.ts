@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { reconcileIncompleteTurnSafely } from '@/lib/codex-gateway/completion'
 import { getCodexGatewayEventStreamUrl } from '@/lib/codex-gateway/client'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 import type { CodexGatewayState } from '@/lib/codex-gateway/types'
@@ -114,6 +115,9 @@ async function persistGatewayEvent(input: {
 
     if (!state.activeTurn && state.lastTurnStatus) {
       await closeTaskStream(input.streamId, 'closed')
+      await reconcileIncompleteTurnSafely(input.taskId, 2_500).catch(() => {
+        console.error('Failed to reconcile chat v2 stream terminal state')
+      })
     }
 
     return
@@ -129,6 +133,9 @@ async function persistGatewayEvent(input: {
 
   if (eventKind === 'gateway.session.closed') {
     await closeTaskStream(input.streamId, 'closed')
+    await reconcileIncompleteTurnSafely(input.taskId, 2_500).catch(() => {
+      console.error('Failed to reconcile chat v2 session closure')
+    })
   }
 }
 

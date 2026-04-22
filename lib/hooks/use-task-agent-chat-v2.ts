@@ -9,7 +9,8 @@ import {
   buildStreamingAgentMessageFromState,
   combineChatMessages,
   createOptimisticUserMessage,
-  hasPersistedAssistantContent,
+  hasPersistedAssistantIdentity,
+  type LiveAssistantMessageIdentity,
   reconcileOptimisticMessages,
 } from '@/lib/task-chat'
 import {
@@ -53,6 +54,23 @@ interface ChatV2TurnResponse {
   error?: string
 }
 
+function buildClientMessageId(prefix: string): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `${prefix}:${crypto.randomUUID()}`
+  }
+
+  return `${prefix}:${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function getLiveTurnIdentity(task: Pick<Task, 'activeTurnSessionId' | 'activeTurnTranscriptCursor'>) {
+  return task.activeTurnSessionId && typeof task.activeTurnTranscriptCursor === 'number'
+    ? {
+        sessionId: task.activeTurnSessionId,
+        transcriptCursor: task.activeTurnTranscriptCursor,
+      }
+    : null
+}
+
 function isTaskStreaming(task: Task): boolean {
   return (
     Boolean(task.activeTurnSessionId) &&
@@ -62,10 +80,23 @@ function isTaskStreaming(task: Task): boolean {
 }
 
 export function useTaskAgentChatV2(taskId: string, task: Task) {
+  const taskCheckpointIdentity = useMemo(
+    () =>
+      task.activeTurnSessionId && typeof task.activeTurnTranscriptCursor === 'number'
+        ? {
+            sessionId: task.activeTurnSessionId,
+            transcriptCursor: task.activeTurnTranscriptCursor,
+          }
+        : null,
+    [task.activeTurnSessionId, task.activeTurnTranscriptCursor],
+  )
   const [persistedMessages, setPersistedMessages] = useState<TaskMessage[]>([])
   const [persistedEvents, setPersistedEvents] = useState<TaskEvent[]>([])
   const [pendingMessages, setPendingMessages] = useState<ReturnType<typeof createOptimisticUserMessage>[]>([])
   const [liveState, setLiveState] = useState<CodexGatewayState | null>(null)
+  const [liveTurnIdentity, setLiveTurnIdentity] = useState<LiveAssistantMessageIdentity | null>(
+    getLiveTurnIdentity(task),
+  )
   const [retainedStreamingMessage, setRetainedStreamingMessage] = useState<TaskMessage | null>(null)
   const [activeStream, setActiveStream] = useState<TaskChatV2StreamDescriptor | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -104,6 +135,8 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
         }
 
         startTransition(() => {
+          const refreshedLiveTurnIdentity = getLiveTurnIdentity(data.data!.task)
+
           setPersistedMessages((previousMessages) =>
             areTaskMessagesEqual(previousMessages, data.data!.messages) ? previousMessages : data.data!.messages,
           )
@@ -112,6 +145,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
           setActiveStream((previousStream) =>
             previousStream?.streamId === data.data!.stream?.streamId ? previousStream : data.data!.stream,
           )
+          setLiveTurnIdentity(refreshedLiveTurnIdentity)
           if (!data.data!.stream) {
             setLiveState(null)
           }
@@ -120,7 +154,13 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
               return previousMessage
             }
 
-            return hasPersistedAssistantContent(data.data!.messages, previousMessage.content) ? null : previousMessage
+            return data.data!.messages.some(
+              (message) => message.role === 'agent' && message.id === previousMessage.id,
+            ) ||
+              (refreshedLiveTurnIdentity &&
+                hasPersistedAssistantIdentity(data.data!.messages, refreshedLiveTurnIdentity))
+              ? null
+              : previousMessage
           })
         })
 
@@ -146,6 +186,12 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
       clearReconnectTimer()
     }
   }, [clearReconnectTimer])
+
+  useEffect(() => {
+    if (!liveTurnIdentity && taskCheckpointIdentity) {
+      setLiveTurnIdentity(taskCheckpointIdentity)
+    }
+  }, [liveTurnIdentity, taskCheckpointIdentity])
 
   useEffect(() => {
     const taskUpdateToken = task.updatedAt ? new Date(task.updatedAt).toISOString() : null
@@ -187,7 +233,8 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
 
     source.addEventListener('state', (event) => {
       const nextState = JSON.parse(event.data) as CodexGatewayState
-      const nextStreamingMessage = buildStreamingAgentMessageFromState(taskId, nextState)
+      const nextIdentity = liveTurnIdentity || taskCheckpointIdentity
+      const nextStreamingMessage = buildStreamingAgentMessageFromState(taskId, nextState, nextIdentity)
 
       startTransition(() => {
         setLiveState(nextState)
@@ -209,6 +256,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
         clearReconnectTimer()
         reconnectAttemptRef.current = 0
         setActiveStream(null)
+        setLiveTurnIdentity(null)
         source.close()
 
         if (eventSourceRef.current === source) {
@@ -223,6 +271,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
       clearReconnectTimer()
       reconnectAttemptRef.current = 0
       setActiveStream(null)
+      setLiveTurnIdentity(null)
       source.close()
 
       if (eventSourceRef.current === source) {
@@ -262,7 +311,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
         eventSourceRef.current = null
       }
     }
-  }, [activeStream, clearReconnectTimer, refreshChat, taskId])
+  }, [activeStream, clearReconnectTimer, liveTurnIdentity, refreshChat, taskCheckpointIdentity, taskId])
 
   const sendMessage = useCallback(
     async (content: string): Promise<ChatActionResult> => {
@@ -274,7 +323,8 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
         }
       }
 
-      const optimisticMessage = createOptimisticUserMessage(taskId, trimmedContent)
+      const clientMessageId = buildClientMessageId('chat')
+      const optimisticMessage = createOptimisticUserMessage(taskId, trimmedContent, clientMessageId)
       setPendingMessages((previousMessages) => [...previousMessages, optimisticMessage])
       setRetainedStreamingMessage(null)
       setLiveState(null)
@@ -287,6 +337,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
+            clientMessageId,
             prompt: trimmedContent,
           }),
         })
@@ -307,6 +358,10 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
           clearReconnectTimer()
           reconnectAttemptRef.current = 0
           setActiveStream(data.data!.stream)
+          setLiveTurnIdentity({
+            sessionId: data.data!.session.sessionId,
+            transcriptCursor: data.data!.turn.transcriptCursor,
+          })
         })
 
         void refreshChat(false)
@@ -376,8 +431,8 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
   }, [activeStream, liveState?.activeTurn, task, taskId])
 
   const streamingMessage = useMemo(
-    () => buildStreamingAgentMessage(taskId, liveState, persistedMessages),
-    [liveState, persistedMessages, taskId],
+    () => buildStreamingAgentMessage(taskId, liveState, persistedMessages, liveTurnIdentity),
+    [liveState, liveTurnIdentity, persistedMessages, taskId],
   )
 
   const activeStreamingMessage = streamingMessage || retainedStreamingMessage

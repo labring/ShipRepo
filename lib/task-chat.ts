@@ -1,12 +1,18 @@
 import type { CodexGatewayState } from '@/lib/codex-gateway/types'
 import { getAssistantContentAfterLastUser, getLastUserTranscriptIndex } from '@/lib/codex-gateway/transcript'
 import type { TaskMessage } from '@/lib/db/schema'
+import { buildProjectedAssistantMessageId } from '@/lib/task-message-ids'
 
 export interface OptimisticTaskMessage extends TaskMessage {
   optimistic: true
 }
 
 export type ChatTaskMessage = TaskMessage | OptimisticTaskMessage
+
+export interface LiveAssistantMessageIdentity {
+  sessionId: string
+  transcriptCursor: number
+}
 
 export interface ChatTurn {
   id: string
@@ -26,12 +32,17 @@ function isOptimisticMessage(message: ChatTaskMessage): message is OptimisticTas
   return 'optimistic' in message && message.optimistic === true
 }
 
-export function createOptimisticUserMessage(taskId: string, content: string): OptimisticTaskMessage {
+export function createOptimisticUserMessage(
+  taskId: string,
+  content: string,
+  clientMessageId: string,
+): OptimisticTaskMessage {
   return {
-    id: `optimistic-user-${Date.now()}`,
+    id: `optimistic-user-${clientMessageId}`,
     taskId,
     role: 'user',
     content,
+    clientMessageId,
     createdAt: new Date(),
     optimistic: true,
   }
@@ -72,9 +83,18 @@ export function reconcileOptimisticMessages(
   persistedMessages: TaskMessage[],
 ): OptimisticTaskMessage[] {
   const persistedUserMessages = persistedMessages.filter((message) => message.role === 'user')
+  const persistedMessageIds = new Set(
+    persistedUserMessages
+      .map((message) => (typeof message.clientMessageId === 'string' ? message.clientMessageId : null))
+      .filter((messageId): messageId is string => Boolean(messageId)),
+  )
   const consumedPersistedIds = new Set<string>()
 
   return pendingMessages.filter((pendingMessage) => {
+    if (pendingMessage.clientMessageId && persistedMessageIds.has(pendingMessage.clientMessageId)) {
+      return false
+    }
+
     const pendingCreatedAt = getTimestamp(pendingMessage.createdAt)
     const matchingPersistedMessage = persistedUserMessages.find((persistedMessage) => {
       if (consumedPersistedIds.has(persistedMessage.id)) {
@@ -103,6 +123,7 @@ export function buildStreamingAgentMessage(
   taskId: string,
   gatewayState: CodexGatewayState | null,
   persistedMessages: TaskMessage[],
+  identity?: LiveAssistantMessageIdentity | null,
 ): TaskMessage | null {
   if (!gatewayState) {
     return null
@@ -126,6 +147,18 @@ export function buildStreamingAgentMessage(
     return null
   }
 
+  const streamingMessageId =
+    identity && Number.isFinite(identity.transcriptCursor)
+      ? buildProjectedAssistantMessageId(identity.sessionId, identity.transcriptCursor)
+      : null
+
+  if (
+    streamingMessageId &&
+    persistedMessages.some((message) => message.role === 'agent' && message.id === streamingMessageId)
+  ) {
+    return null
+  }
+
   const latestPersistedAgentMessage = [...persistedMessages].reverse().find((message) => message.role === 'agent')
   const latestPersistedContent = latestPersistedAgentMessage
     ? parseTaskAgentMessage(latestPersistedAgentMessage.content).trim()
@@ -141,10 +174,11 @@ export function buildStreamingAgentMessage(
   const latestAssistantEntry = assistantEntries[assistantEntries.length - 1]
 
   return {
-    id: `gateway-stream-${latestAssistantEntry.id}`,
+    id: streamingMessageId || `gateway-stream-${latestAssistantEntry.id}`,
     taskId,
     role: 'agent',
     content: streamingContent,
+    clientMessageId: null,
     createdAt: new Date(latestAssistantEntry.createdAt),
   }
 }
@@ -152,6 +186,7 @@ export function buildStreamingAgentMessage(
 export function buildStreamingAgentMessageFromState(
   taskId: string,
   gatewayState: CodexGatewayState | null,
+  identity?: LiveAssistantMessageIdentity | null,
 ): TaskMessage | null {
   if (!gatewayState) {
     return null
@@ -176,12 +211,17 @@ export function buildStreamingAgentMessageFromState(
   }
 
   const latestAssistantEntry = assistantEntries[assistantEntries.length - 1]
+  const streamingMessageId =
+    identity && Number.isFinite(identity.transcriptCursor)
+      ? buildProjectedAssistantMessageId(identity.sessionId, identity.transcriptCursor)
+      : null
 
   return {
-    id: `gateway-stream-${latestAssistantEntry.id}`,
+    id: streamingMessageId || `gateway-stream-${latestAssistantEntry.id}`,
     taskId,
     role: 'agent',
     content,
+    clientMessageId: null,
     createdAt: new Date(latestAssistantEntry.createdAt),
   }
 }
@@ -209,6 +249,18 @@ export function hasPersistedAssistantContent(
   })
 }
 
+export function hasPersistedAssistantIdentity(
+  persistedMessages: TaskMessage[],
+  identity: LiveAssistantMessageIdentity | null | undefined,
+): boolean {
+  if (!identity) {
+    return false
+  }
+
+  const messageId = buildProjectedAssistantMessageId(identity.sessionId, identity.transcriptCursor)
+  return persistedMessages.some((message) => message.role === 'agent' && message.id === messageId)
+}
+
 export function combineChatMessages(
   persistedMessages: TaskMessage[],
   pendingMessages: OptimisticTaskMessage[],
@@ -216,7 +268,15 @@ export function combineChatMessages(
 ): ChatTaskMessage[] {
   const combinedMessages: ChatTaskMessage[] = [...persistedMessages, ...pendingMessages]
 
-  if (streamingMessage && !hasPersistedAssistantContent(persistedMessages, streamingMessage.content)) {
+  const hasPersistedStreamingMessage = streamingMessage
+    ? persistedMessages.some((message) => message.role === 'agent' && message.id === streamingMessage.id)
+    : false
+
+  if (
+    streamingMessage &&
+    !hasPersistedStreamingMessage &&
+    !hasPersistedAssistantContent(persistedMessages, streamingMessage.content)
+  ) {
     combinedMessages.push(streamingMessage)
   }
 

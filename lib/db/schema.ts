@@ -437,11 +437,16 @@ export const taskEvents = pgTable(
     sessionId: text('session_id'),
     threadId: text('thread_id'),
     turnId: text('turn_id'),
+    clientMessageId: text('client_message_id'),
     payload: jsonb('payload').$type<Record<string, unknown> | null>(),
     createdAt: timestamp('created_at').defaultNow().notNull(),
   },
   (table) => ({
     taskSeqUnique: uniqueIndex('task_events_task_id_seq_idx').on(table.taskId, table.seq),
+    taskClientMessageUnique: uniqueIndex('task_events_task_id_client_message_id_idx').on(
+      table.taskId,
+      table.clientMessageId,
+    ),
   }),
 )
 
@@ -454,6 +459,7 @@ export const insertTaskEventSchema = z.object({
   sessionId: z.string().optional(),
   threadId: z.string().optional(),
   turnId: z.string().optional(),
+  clientMessageId: z.string().optional(),
   payload: z.record(z.string(), z.unknown()).nullable().optional(),
   createdAt: z.date().optional(),
 })
@@ -467,6 +473,7 @@ export const selectTaskEventSchema = z.object({
   sessionId: z.string().nullable(),
   threadId: z.string().nullable(),
   turnId: z.string().nullable(),
+  clientMessageId: z.string().nullable(),
   payload: z.record(z.string(), z.unknown()).nullable(),
   createdAt: z.date(),
 })
@@ -520,23 +527,34 @@ export type TaskStream = z.infer<typeof selectTaskStreamSchema>
 export type InsertTaskStream = z.infer<typeof insertTaskStreamSchema>
 
 // Task messages table - stores user and agent messages for each task
-export const taskMessages = pgTable('task_messages', {
-  id: text('id').primaryKey(),
-  taskId: text('task_id')
-    .notNull()
-    .references(() => tasks.id, { onDelete: 'cascade' }), // Foreign key to tasks table
-  role: text('role', {
-    enum: ['user', 'agent'],
-  }).notNull(), // Who sent the message
-  content: text('content').notNull(), // The message content
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-})
+export const taskMessages = pgTable(
+  'task_messages',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id')
+      .notNull()
+      .references(() => tasks.id, { onDelete: 'cascade' }), // Foreign key to tasks table
+    role: text('role', {
+      enum: ['user', 'agent'],
+    }).notNull(), // Who sent the message
+    content: text('content').notNull(), // The message content
+    clientMessageId: text('client_message_id'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => ({
+    taskClientMessageUnique: uniqueIndex('task_messages_task_id_client_message_id_idx').on(
+      table.taskId,
+      table.clientMessageId,
+    ),
+  }),
+)
 
 export const insertTaskMessageSchema = z.object({
   id: z.string().optional(),
   taskId: z.string().min(1, 'Task ID is required'),
   role: z.enum(['user', 'agent']),
   content: z.string().min(1, 'Content is required'),
+  clientMessageId: z.string().optional(),
   createdAt: z.date().optional(),
 })
 
@@ -545,6 +563,7 @@ export const selectTaskMessageSchema = z.object({
   taskId: z.string(),
   role: z.enum(['user', 'agent']),
   content: z.string(),
+  clientMessageId: z.string().nullable(),
   createdAt: z.date(),
 })
 

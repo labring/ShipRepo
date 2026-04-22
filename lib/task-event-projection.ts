@@ -1,6 +1,11 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm'
 import { db } from '@/lib/db/client'
 import { taskEvents, taskMessages, type TaskEvent } from '@/lib/db/schema'
+import {
+  buildProjectedAssistantMessageId,
+  buildTaskClientMessageId,
+  buildTaskEventUserMessageId,
+} from '@/lib/task-message-ids'
 import { generateId } from '@/lib/utils/id'
 
 const PROJECTABLE_EVENT_KINDS = ['user_message.created', 'assistant.message.projected'] as const
@@ -18,20 +23,40 @@ function parseTranscriptCursor(value: unknown): number | null {
   return null
 }
 
-export function buildTaskEventUserMessageId(eventId: string): string {
-  return `task-user-event-${eventId}`
-}
-
-export function buildProjectedAssistantMessageId(sessionId: string, transcriptCursor: number): string {
-  return `codex-agent-${sessionId}-${transcriptCursor}`
-}
-
 export async function projectUserMessageFromEvent(
-  event: Pick<TaskEvent, 'id' | 'taskId' | 'payload' | 'createdAt'>,
+  event: Pick<TaskEvent, 'id' | 'taskId' | 'payload' | 'createdAt' | 'clientMessageId'>,
 ): Promise<void> {
   const content = typeof event.payload?.content === 'string' ? event.payload.content.trim() : ''
+  const clientMessageId =
+    typeof event.clientMessageId === 'string' && event.clientMessageId.trim()
+      ? event.clientMessageId.trim()
+      : typeof event.payload?.clientMessageId === 'string' && event.payload.clientMessageId.trim()
+        ? event.payload.clientMessageId.trim()
+        : null
 
   if (!content) {
+    return
+  }
+
+  if (clientMessageId) {
+    await db
+      .insert(taskMessages)
+      .values({
+        id: buildTaskClientMessageId(clientMessageId),
+        taskId: event.taskId,
+        role: 'user',
+        content,
+        clientMessageId,
+        createdAt: event.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: [taskMessages.taskId, taskMessages.clientMessageId],
+        set: {
+          content,
+          createdAt: event.createdAt,
+        },
+      })
+
     return
   }
 
