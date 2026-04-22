@@ -3,19 +3,21 @@ import { FORCED_CODEX_MODEL } from '@/lib/codex/defaults'
 import { CodexGatewayApiError, getCodexGatewaySessionState, sendCodexGatewayTurn } from '@/lib/codex-gateway/client'
 import { finalizeTurnCompletion, markTurnCompletionRunning, recordTurnCheckpoint } from '@/lib/codex-gateway/completion'
 import { ensureCodexGatewaySession } from '@/lib/codex-gateway/session'
+import type { CodexGatewayState, CodexGatewaySessionResponse } from '@/lib/codex-gateway/types'
 import { getTaskGatewayContextById } from '@/lib/codex-gateway/task'
 import { getAssistantContentAfterCursor } from '@/lib/codex-gateway/transcript'
 import { db } from '@/lib/db/client'
 import { taskMessages, tasks } from '@/lib/db/schema'
 import { refreshTaskDevboxLease } from '@/lib/devbox/runtime'
+import { prependSealosDeployContext } from '@/lib/sealos-deploy-context'
 import { generateId } from '@/lib/utils/id'
 import { createTaskLogger } from '@/lib/utils/task-logger'
 import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
-import type { CodexGatewaySessionResponse } from '@/lib/codex-gateway/types'
 
 interface StartCodexGatewayTurnOptions {
   appendUserMessage?: boolean
   model?: string | null
+  runtimeNamespace?: string | null
 }
 
 export interface StartedCodexGatewayTurn {
@@ -60,6 +62,22 @@ function getTurnTranscriptCursor(
   return transcript.length
 }
 
+function isFirstSessionTurn(state: CodexGatewayState | null | undefined): boolean {
+  return !state?.transcript?.some((entry) => entry.role === 'user' || entry.role === 'assistant')
+}
+
+function buildGatewayPrompt(
+  prompt: string,
+  state: CodexGatewayState | null | undefined,
+  runtimeNamespace?: string | null,
+): string {
+  if (!isFirstSessionTurn(state)) {
+    return prompt
+  }
+
+  return prependSealosDeployContext(prompt, runtimeNamespace)
+}
+
 export async function startCodexGatewayTaskTurn(
   taskId: string,
   prompt: string,
@@ -96,6 +114,7 @@ export async function startCodexGatewayTaskTurn(
   }
   let gatewaySessionId = task.gatewaySessionId
   let gatewayThreadId: string | null | undefined = null
+  let gatewayState: CodexGatewayState | null = null
   let turnResponse: CodexGatewaySessionResponse
 
   if (!gatewaySessionId) {
@@ -108,10 +127,12 @@ export async function startCodexGatewayTaskTurn(
 
     gatewaySessionId = ensuredSession.sessionId
     gatewayThreadId = ensuredSession.state.threadId
+    gatewayState = ensuredSession.state
   } else {
     try {
       const existingSession = await getCodexGatewaySessionState(gatewayUrl, gatewaySessionId, gatewayAuthToken)
       gatewayThreadId = existingSession.state.threadId
+      gatewayState = existingSession.state
     } catch (error) {
       if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
         throw error
@@ -119,15 +140,17 @@ export async function startCodexGatewayTaskTurn(
     }
   }
 
+  let gatewayPrompt = buildGatewayPrompt(prompt, gatewayState, options.runtimeNamespace)
+
   const turnSendingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_SENDING, {
-    promptChars: prompt.length,
+    promptChars: gatewayPrompt.length,
     sessionId: gatewaySessionId,
     threadId: gatewayThreadId,
   })
   await logger.info(turnSendingLog)
   console.info(turnSendingLog)
   try {
-    turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt }, gatewayAuthToken)
+    turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt: gatewayPrompt }, gatewayAuthToken)
   } catch (error) {
     if (!(error instanceof CodexGatewayApiError && error.status === 404)) {
       throw error
@@ -154,15 +177,17 @@ export async function startCodexGatewayTaskTurn(
 
     gatewaySessionId = refreshedSession.sessionId
     gatewayThreadId = refreshedSession.state.threadId
+    gatewayState = refreshedSession.state
+    gatewayPrompt = buildGatewayPrompt(prompt, gatewayState, options.runtimeNamespace)
     const retryTurnSendingLog = formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_SENDING, {
       mode: 'recreated',
-      promptChars: prompt.length,
+      promptChars: gatewayPrompt.length,
       sessionId: gatewaySessionId,
       threadId: gatewayThreadId,
     })
     await logger.info(retryTurnSendingLog)
     console.info(retryTurnSendingLog)
-    turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt }, gatewayAuthToken)
+    turnResponse = await sendCodexGatewayTurn(gatewayUrl, gatewaySessionId, { prompt: gatewayPrompt }, gatewayAuthToken)
   }
 
   const startedAt = new Date()
