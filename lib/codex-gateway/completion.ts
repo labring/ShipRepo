@@ -1,13 +1,16 @@
 import { and, desc, eq } from 'drizzle-orm'
 import { CodexGatewayApiError, getCodexGatewaySessionState } from '@/lib/codex-gateway/client'
+import { diagnoseCodexTurnFailure } from '@/lib/codex-gateway/failure-diagnostics'
 import { getAssistantContentAfterCursor, type TranscriptTextEntry } from '@/lib/codex-gateway/transcript'
 import { getTaskGatewayContextById } from '@/lib/codex-gateway/task'
 import { db } from '@/lib/db/client'
 import { taskEvents, tasks, type Task } from '@/lib/db/schema'
+import { closeTaskChatV2StreamDescriptor } from '@/lib/task-chat-v2'
 import { projectAssistantMessage } from '@/lib/task-event-projection'
 import { buildProjectedAssistantMessageId } from '@/lib/task-message-ids'
 import { appendProjectedAssistantMessageEvent, recordTaskEvent } from '@/lib/task-events'
 import { OperationTimeoutError, withTimeout } from '@/lib/utils/async'
+import { formatKeyTaskLogMessage, TASK_FLOW_LOGS } from '@/lib/utils/task-flow-logs'
 
 export const TURN_COMPLETION_STATES = ['pending', 'running', 'completed', 'failed'] as const
 
@@ -36,6 +39,14 @@ interface FinalizeTurnInput {
 interface FinalizeActiveTurnFailureInput {
   clearGatewaySession?: boolean
   error: string
+  sessionId?: string | null
+  taskId: string
+}
+
+interface ForceFinalizeActiveTurnInput {
+  clearGatewaySession?: boolean
+  error?: string | null
+  mode: 'failed' | 'interrupted'
   sessionId?: string | null
   taskId: string
 }
@@ -217,6 +228,29 @@ export async function finalizeTurnCompletion(input: FinalizeTurnInput): Promise<
 }
 
 export async function finalizeActiveTurnFailure(input: FinalizeActiveTurnFailureInput): Promise<Task | null> {
+  return await forceFinalizeActiveTurn({
+    taskId: input.taskId,
+    sessionId: input.sessionId,
+    mode: 'failed',
+    error: input.error,
+    clearGatewaySession: input.clearGatewaySession,
+  })
+}
+
+export async function finalizeActiveTurnInterrupted(input: {
+  clearGatewaySession?: boolean
+  sessionId?: string | null
+  taskId: string
+}): Promise<Task | null> {
+  return await forceFinalizeActiveTurn({
+    taskId: input.taskId,
+    sessionId: input.sessionId,
+    mode: 'interrupted',
+    clearGatewaySession: input.clearGatewaySession,
+  })
+}
+
+async function forceFinalizeActiveTurn(input: ForceFinalizeActiveTurnInput): Promise<Task | null> {
   const [task] = await db.select().from(tasks).where(eq(tasks.id, input.taskId)).limit(1)
 
   if (!task || !hasActiveTurnCheckpoint(task) || !task.activeTurnSessionId || task.status === 'stopped') {
@@ -233,14 +267,49 @@ export async function finalizeActiveTurnFailure(input: FinalizeActiveTurnFailure
     task.activeTurnTranscriptCursor!,
   )
 
+  await closeTaskChatV2StreamDescriptor(input.taskId, input.mode === 'failed' ? 'errored' : 'closed').catch(() => {
+    console.error('Failed to close active chat stream during turn finalize')
+  })
+
+  if (input.mode === 'failed') {
+    const fallbackError = input.error || 'Codex gateway turn failed'
+    const diagnostic = await diagnoseCodexTurnFailure({
+      taskId: input.taskId,
+      sessionId: task.activeTurnSessionId,
+      fallbackError,
+      turnStatus: 'failed',
+    })
+
+    console.info(
+      formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_FAILED, {
+        sessionId: task.activeTurnSessionId,
+        errorSource: diagnostic.source,
+        turnStatus: 'failed',
+      }),
+    )
+    console.error('Chat v2 turn finalized as failed', diagnostic)
+
+    return await finalizeTurnCompletion({
+      taskId: input.taskId,
+      sessionId: task.activeTurnSessionId,
+      transcriptCursor: task.activeTurnTranscriptCursor!,
+      assistantContent,
+      success: false,
+      error: fallbackError,
+      clearGatewaySession: input.clearGatewaySession ?? true,
+      turnStatus: 'failed',
+    })
+  }
+
   return await finalizeTurnCompletion({
     taskId: input.taskId,
     sessionId: task.activeTurnSessionId,
     transcriptCursor: task.activeTurnTranscriptCursor!,
     assistantContent,
-    success: false,
-    error: input.error,
-    clearGatewaySession: input.clearGatewaySession ?? task.gatewaySessionId === task.activeTurnSessionId,
+    success: true,
+    error: null,
+    clearGatewaySession: input.clearGatewaySession ?? true,
+    turnStatus: 'interrupted',
   })
 }
 
@@ -273,6 +342,28 @@ export async function reconcileIncompleteTurn(taskId: string): Promise<Task | nu
       sessionState.state.transcript,
     )
 
+    if (
+      sessionState.state.lastTurnStatus !== 'completed' &&
+      sessionState.state.lastTurnStatus !== 'succeeded' &&
+      sessionState.state.lastTurnStatus !== 'interrupted'
+    ) {
+      const diagnostic = await diagnoseCodexTurnFailure({
+        taskId,
+        sessionId: task.activeTurnSessionId,
+        fallbackError: 'Codex gateway turn failed',
+        turnStatus: sessionState.state.lastTurnStatus,
+      })
+
+      console.info(
+        formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_FAILED, {
+          sessionId: task.activeTurnSessionId,
+          errorSource: diagnostic.source,
+          turnStatus: sessionState.state.lastTurnStatus,
+        }),
+      )
+      console.error('Chat v2 turn finalized as failed', diagnostic)
+    }
+
     return await finalizeTurnCompletion({
       taskId,
       sessionId: task.activeTurnSessionId,
@@ -298,6 +389,20 @@ export async function reconcileIncompleteTurn(taskId: string): Promise<Task | nu
         task.activeTurnTranscriptCursor!,
       )
 
+      console.info(
+        formatKeyTaskLogMessage(TASK_FLOW_LOGS.GATEWAY_TURN_FAILED, {
+          sessionId: task.activeTurnSessionId,
+          errorSource: 'gateway-session',
+          httpStatus: error.status,
+        }),
+      )
+      console.error('Chat v2 turn finalized as failed', {
+        error: 'Codex gateway session is no longer available',
+        httpStatus: error.status,
+        source: 'gateway-session',
+        turnStatus: null,
+      })
+
       return await finalizeTurnCompletion({
         taskId,
         sessionId: task.activeTurnSessionId,
@@ -305,6 +410,24 @@ export async function reconcileIncompleteTurn(taskId: string): Promise<Task | nu
         assistantContent,
         success: false,
         error: 'Codex gateway session is no longer available',
+        clearGatewaySession: true,
+      })
+    }
+
+    if (error instanceof CodexGatewayApiError && error.status >= 500 && error.status < 600) {
+      return await finalizeActiveTurnFailure({
+        taskId,
+        sessionId: task.activeTurnSessionId,
+        error: 'Codex gateway turn failed',
+        clearGatewaySession: true,
+      })
+    }
+
+    if (!(error instanceof CodexGatewayApiError)) {
+      return await finalizeActiveTurnFailure({
+        taskId,
+        sessionId: task.activeTurnSessionId,
+        error: 'Codex gateway turn failed',
         clearGatewaySession: true,
       })
     }
@@ -321,6 +444,7 @@ export async function reconcileIncompleteTurnSafely(taskId: string, timeoutMs = 
       return null
     }
 
+    console.error('Chat v2 reconcile failed', error)
     throw error
   }
 }
