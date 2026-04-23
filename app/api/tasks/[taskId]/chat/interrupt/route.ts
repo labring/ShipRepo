@@ -1,7 +1,11 @@
 import { and, eq, isNull } from 'drizzle-orm'
 import { NextResponse } from 'next/server'
 import { CodexGatewayApiError, interruptCodexGatewayTurn } from '@/lib/codex-gateway/client'
-import { hasActiveTurnCheckpoint, reconcileIncompleteTurnSafely } from '@/lib/codex-gateway/completion'
+import {
+  finalizeActiveTurnInterrupted,
+  hasActiveTurnCheckpoint,
+  reconcileIncompleteTurnSafely,
+} from '@/lib/codex-gateway/completion'
 import { getTaskGatewayContext } from '@/lib/codex-gateway/task'
 import { db } from '@/lib/db/client'
 import { tasks } from '@/lib/db/schema'
@@ -44,22 +48,56 @@ export async function POST(_request: Request, { params }: RouteParams) {
     }
 
     const { gatewayUrl, gatewayAuthToken } = await getTaskGatewayContext(taskId, session.user.id)
-    if (!gatewayUrl) {
-      return NextResponse.json({ error: 'Gateway URL is not configured' }, { status: 400 })
+
+    const finalizeInterruptedLocally = async () => {
+      await finalizeActiveTurnInterrupted({
+        taskId,
+        sessionId: task.activeTurnSessionId,
+        clearGatewaySession: true,
+      })
     }
 
-    const result = await interruptCodexGatewayTurn(gatewayUrl, task.activeTurnSessionId, gatewayAuthToken)
-    await reconcileIncompleteTurnSafely(taskId, 2_500).catch(() => {
-      console.error('Failed to reconcile interrupted chat turn')
-    })
+    if (!gatewayUrl) {
+      await finalizeInterruptedLocally()
+      return NextResponse.json({
+        success: true,
+        data: {
+          sessionId: task.activeTurnSessionId,
+          state: null,
+        },
+      })
+    }
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        sessionId: result.sessionId,
-        state: result.state,
-      },
-    })
+    try {
+      const result = await interruptCodexGatewayTurn(gatewayUrl, task.activeTurnSessionId, gatewayAuthToken)
+      const reconciledTask = await reconcileIncompleteTurnSafely(taskId, 2_500).catch(() => {
+        console.error('Failed to reconcile interrupted chat turn')
+        return null
+      })
+
+      if (reconciledTask && hasActiveTurnCheckpoint(reconciledTask)) {
+        await finalizeInterruptedLocally()
+      } else if (!reconciledTask) {
+        await finalizeInterruptedLocally()
+      }
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          sessionId: result.sessionId,
+          state: result.state,
+        },
+      })
+    } catch {
+      await finalizeInterruptedLocally()
+      return NextResponse.json({
+        success: true,
+        data: {
+          sessionId: task.activeTurnSessionId,
+          state: null,
+        },
+      })
+    }
   } catch (error) {
     if (error instanceof CodexGatewayApiError) {
       return NextResponse.json(

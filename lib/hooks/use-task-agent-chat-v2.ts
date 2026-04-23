@@ -432,6 +432,15 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
         }
       }
 
+      clearReconnectTimer()
+      eventSourceRef.current?.close()
+      eventSourceRef.current = null
+      setActiveStream(null)
+      setLiveTurnIdentity(null)
+      setLiveState(null)
+      setRetainedStreamingMessage(null)
+      void refreshChat(false)
+
       return {
         success: true,
       }
@@ -443,7 +452,7 @@ export function useTaskAgentChatV2(taskId: string, task: Task) {
     } finally {
       setIsStopping(false)
     }
-  }, [activeStream, liveState?.activeTurn, task, taskId])
+  }, [activeStream, clearReconnectTimer, liveState?.activeTurn, refreshChat, task, taskId])
 
   const streamingMessage = useMemo(
     () => buildStreamingAgentMessage(taskId, liveState, persistedMessages, liveTurnIdentity),

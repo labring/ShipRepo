@@ -259,6 +259,15 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
       if (upstream.status === 404 || upstream.status === 410) {
         await persistMissingSessionFailure(resolvedTaskId, stream.sessionId)
+      } else if (upstream.status >= 500 && upstream.status < 600) {
+        await finalizeActiveTurnFailure({
+          taskId: resolvedTaskId,
+          sessionId: stream.sessionId,
+          error: 'Codex gateway turn failed',
+          clearGatewaySession: true,
+        }).catch(() => {
+          console.error('Failed to force finalize chat v2 stream connection error')
+        })
       } else {
         await reconcileIncompleteTurnSafely(resolvedTaskId, 2_500).catch(() => {
           console.error('Failed to reconcile chat v2 stream connection error')
@@ -376,8 +385,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             sessionId: stream.sessionId,
             fallbackError: 'Codex gateway turn failed',
           })
-          await reconcileIncompleteTurnSafely(resolvedTaskId, 2_500).catch(() => {
-            console.error('Failed to reconcile chat v2 stream reader error')
+          await finalizeActiveTurnFailure({
+            taskId: resolvedTaskId,
+            sessionId: stream.sessionId,
+            error: 'Codex gateway turn failed',
+            clearGatewaySession: true,
+          }).catch(() => {
+            console.error('Failed to force finalize chat v2 stream reader error')
           })
           try {
             closed = true
@@ -415,8 +429,13 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       }).catch(() => {
         console.error('Failed to log chat v2 stream proxy diagnostic')
       })
-      await reconcileIncompleteTurnSafely(taskId, 2_500).catch(() => {
-        console.error('Failed to reconcile chat v2 stream proxy error')
+      await finalizeActiveTurnFailure({
+        taskId,
+        sessionId: streamSessionId,
+        error: 'Codex gateway turn failed',
+        clearGatewaySession: true,
+      }).catch(() => {
+        console.error('Failed to force finalize chat v2 stream proxy error')
       })
     }
 
