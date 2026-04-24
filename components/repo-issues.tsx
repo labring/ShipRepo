@@ -21,69 +21,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { User, Calendar, MessageSquare, MoreVertical, ListTodo } from 'lucide-react'
 import { toast } from 'sonner'
-import Claude from '@/components/logos/claude'
-import Codex from '@/components/logos/codex'
-import Copilot from '@/components/logos/copilot'
-import Cursor from '@/components/logos/cursor'
-import Gemini from '@/components/logos/gemini'
-import OpenCode from '@/components/logos/opencode'
-
-const CODING_AGENTS = [
-  { value: 'claude', label: 'Claude', icon: Claude },
-  { value: 'codex', label: 'Codex', icon: Codex },
-  { value: 'copilot', label: 'Copilot', icon: Copilot },
-  { value: 'cursor', label: 'Cursor', icon: Cursor },
-  { value: 'gemini', label: 'Gemini', icon: Gemini },
-  { value: 'opencode', label: 'opencode', icon: OpenCode },
-] as const
-
-const AGENT_MODELS = {
-  claude: [
-    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
-    { value: 'anthropic/claude-opus-4.6', label: 'Opus 4.6' },
-    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-  ],
-  codex: [{ value: 'gpt-5.4', label: 'GPT-5.4' }],
-  copilot: [
-    { value: 'claude-sonnet-4.5', label: 'Sonnet 4.5' },
-    { value: 'claude-sonnet-4', label: 'Sonnet 4' },
-    { value: 'claude-haiku-4.5', label: 'Haiku 4.5' },
-    { value: 'gpt-5', label: 'GPT-5' },
-  ],
-  cursor: [
-    { value: 'auto', label: 'Auto' },
-    { value: 'composer-1', label: 'Composer' },
-    { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
-    { value: 'sonnet-4.5-thinking', label: 'Sonnet 4.5 Thinking' },
-    { value: 'gpt-5', label: 'GPT-5' },
-    { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
-    { value: 'opus-4.1', label: 'Opus 4.1' },
-    { value: 'grok', label: 'Grok' },
-  ],
-  gemini: [
-    { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
-    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  ],
-  opencode: [
-    { value: 'gpt-5', label: 'GPT-5' },
-    { value: 'gpt-5-mini', label: 'GPT-5 mini' },
-    { value: 'gpt-5-nano', label: 'GPT-5 nano' },
-    { value: 'gpt-4.1', label: 'GPT-4.1' },
-    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
-    { value: 'claude-opus-4-5', label: 'Opus 4.5' },
-    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-  ],
-} as const
-
-const DEFAULT_MODELS = {
-  claude: 'claude-sonnet-4-5',
-  codex: 'gpt-5.4',
-  copilot: 'claude-sonnet-4.5',
-  cursor: 'auto',
-  gemini: 'gemini-3-pro-preview',
-  opencode: 'gpt-5',
-} as const
+const FIXED_TASK_AGENT = 'codex'
+const FIXED_TASK_MODEL = 'gpt-5.4'
 
 function formatDistanceToNow(date: Date): string {
   const now = new Date()
@@ -142,8 +81,6 @@ export function RepoIssues({ owner, repo }: RepoIssuesProps) {
   const [error, setError] = useState<string | null>(null)
   const [showCreateTaskDialog, setShowCreateTaskDialog] = useState(false)
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null)
-  const [selectedAgent, setSelectedAgent] = useState('claude')
-  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODELS.claude)
   const [installDeps, setInstallDeps] = useState(false)
   const [maxDuration, setMaxDuration] = useState(300)
   const [keepAlive, setKeepAlive] = useState(false)
@@ -170,14 +107,6 @@ export function RepoIssues({ owner, repo }: RepoIssuesProps) {
     fetchIssues()
   }, [owner, repo])
 
-  useEffect(() => {
-    const agentModels = AGENT_MODELS[selectedAgent as keyof typeof AGENT_MODELS]
-    const defaultModel = DEFAULT_MODELS[selectedAgent as keyof typeof DEFAULT_MODELS]
-    if (agentModels && !agentModels.find((m) => m.value === selectedModel)) {
-      setSelectedModel(defaultModel)
-    }
-  }, [selectedAgent, selectedModel])
-
   const handleCreateTaskFromIssue = (issue: Issue) => {
     setSelectedIssue(issue)
     setShowCreateTaskDialog(true)
@@ -199,8 +128,8 @@ export function RepoIssues({ owner, repo }: RepoIssuesProps) {
         body: JSON.stringify({
           prompt,
           repoUrl,
-          selectedAgent,
-          selectedModel,
+          selectedAgent: FIXED_TASK_AGENT,
+          selectedModel: FIXED_TASK_MODEL,
           installDependencies: installDeps,
           maxDuration,
           keepAlive,
@@ -344,40 +273,9 @@ export function RepoIssues({ owner, repo }: RepoIssuesProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Agent</label>
-                <Select value={selectedAgent} onValueChange={setSelectedAgent}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select an agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CODING_AGENTS.map((agent) => (
-                      <SelectItem key={agent.value} value={agent.value}>
-                        <div className="flex items-center gap-2">
-                          <agent.icon className="w-4 h-4" />
-                          <span>{agent.label}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Model</label>
-                <Select value={selectedModel} onValueChange={setSelectedModel}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {AGENT_MODELS[selectedAgent as keyof typeof AGENT_MODELS]?.map((model) => (
-                      <SelectItem key={model.value} value={model.value}>
-                        {model.label}
-                      </SelectItem>
-                    )) || []}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+              This task will run with <span className="font-medium text-foreground">Codex</span> on{' '}
+              <span className="font-medium text-foreground">GPT-5.4</span>.
             </div>
 
             {/* Task Options */}

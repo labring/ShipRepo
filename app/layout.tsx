@@ -28,8 +28,7 @@ const commissioner = Commissioner({
 
 export const metadata: Metadata = {
   title: 'Analyze and Ship to Sealos',
-  description:
-    'AI-powered coding agent template supporting Claude Code, OpenAI Codex CLI, Cursor CLI, and opencode with a Devbox runtime',
+  description: 'Deploy repositories to Sealos with Codex, GPT-5.4, Devbox runtimes, and the Codex Gateway.',
 }
 
 export default function RootLayout({

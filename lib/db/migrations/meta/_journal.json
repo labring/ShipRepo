@@ -197,6 +197,13 @@
       "when": 1776766917758,
       "tag": "0027_windy_pet_avengers",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1776910000000,
+      "tag": "0028_solid_lockjaw",
+      "breakpoints": true
     }
   ]
 }

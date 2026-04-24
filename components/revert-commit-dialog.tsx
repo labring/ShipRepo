@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, startTransition } from 'react'
+import { useState } from 'react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +14,6 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
-import { Claude, Codex, Copilot, Cursor, Gemini, OpenCode } from '@/components/logos'
 
 interface Commit {
   sha: string
@@ -50,61 +49,8 @@ interface RevertCommitDialogProps {
   maxSandboxDuration?: number
 }
 
-const CODING_AGENTS = [
-  { value: 'claude', label: 'Claude', icon: Claude },
-  { value: 'codex', label: 'Codex', icon: Codex },
-  { value: 'copilot', label: 'Copilot', icon: Copilot },
-  { value: 'cursor', label: 'Cursor', icon: Cursor },
-  { value: 'gemini', label: 'Gemini', icon: Gemini },
-  { value: 'opencode', label: 'opencode', icon: OpenCode },
-] as const
-
-const AGENT_MODELS = {
-  claude: [
-    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
-    { value: 'anthropic/claude-opus-4.6', label: 'Opus 4.6' },
-    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-  ],
-  codex: [{ value: 'gpt-5.4', label: 'GPT-5.4' }],
-  copilot: [
-    { value: 'claude-sonnet-4.5', label: 'Sonnet 4.5' },
-    { value: 'claude-sonnet-4', label: 'Sonnet 4' },
-    { value: 'claude-haiku-4.5', label: 'Haiku 4.5' },
-    { value: 'gpt-5', label: 'GPT-5' },
-  ],
-  cursor: [
-    { value: 'auto', label: 'Auto' },
-    { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
-    { value: 'sonnet-4.5-thinking', label: 'Sonnet 4.5 Thinking' },
-    { value: 'gpt-5', label: 'GPT-5' },
-    { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
-    { value: 'opus-4.1', label: 'Opus 4.1' },
-    { value: 'grok', label: 'Grok' },
-  ],
-  gemini: [
-    { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
-    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  ],
-  opencode: [
-    { value: 'gpt-5', label: 'GPT-5' },
-    { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
-    { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
-    { value: 'gpt-4.1', label: 'GPT-4.1' },
-    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
-    { value: 'claude-opus-4-5', label: 'Opus 4.5' },
-    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-  ],
-} as const
-
-const DEFAULT_MODELS = {
-  claude: 'claude-sonnet-4-5',
-  codex: 'gpt-5.4',
-  copilot: 'claude-sonnet-4.5',
-  cursor: 'auto',
-  gemini: 'gemini-3-pro-preview',
-  opencode: 'gpt-5',
-} as const
+const FIXED_TASK_AGENT = 'codex'
+const FIXED_TASK_MODEL = 'gpt-5.4'
 
 export function RevertCommitDialog({
   open,
@@ -115,28 +61,10 @@ export function RevertCommitDialog({
   onRevert,
   maxSandboxDuration = 300,
 }: RevertCommitDialogProps) {
-  const [selectedAgent, setSelectedAgent] = useState('claude')
-  const [selectedModel, setSelectedModel] = useState<string>(DEFAULT_MODELS.claude)
   const [installDependencies, setInstallDependencies] = useState(false)
   const [maxDuration, setMaxDuration] = useState(300)
   const [keepAlive, setKeepAlive] = useState(false)
   const [isReverting, setIsReverting] = useState(false)
-
-  // Update model when agent changes
-  useEffect(() => {
-    if (selectedAgent) {
-      const agentModels = AGENT_MODELS[selectedAgent as keyof typeof AGENT_MODELS]
-      const defaultModel = DEFAULT_MODELS[selectedAgent as keyof typeof DEFAULT_MODELS]
-      // Check if current model exists for the new agent, otherwise use default
-      const modelExists = agentModels?.some((m) => m.value === selectedModel)
-      if (!modelExists) {
-        // Use startTransition to defer state update
-        startTransition(() => {
-          setSelectedModel(defaultModel)
-        })
-      }
-    }
-  }, [selectedAgent, selectedModel])
 
   const handleRevert = () => {
     if (!commit) return
@@ -144,8 +72,8 @@ export function RevertCommitDialog({
     setIsReverting(true)
     onRevert({
       commit,
-      selectedAgent,
-      selectedModel,
+      selectedAgent: FIXED_TASK_AGENT,
+      selectedModel: FIXED_TASK_MODEL,
       installDependencies,
       maxDuration,
       keepAlive,
@@ -170,40 +98,9 @@ export function RevertCommitDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="py-4 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium mb-2 block">Agent</label>
-              <Select value={selectedAgent} onValueChange={setSelectedAgent}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select an agent" />
-                </SelectTrigger>
-                <SelectContent>
-                  {CODING_AGENTS.map((agent) => (
-                    <SelectItem key={agent.value} value={agent.value}>
-                      <div className="flex items-center gap-2">
-                        <agent.icon className="w-4 h-4" />
-                        <span>{agent.label}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-2 block">Model</label>
-              <Select value={selectedModel} onValueChange={setSelectedModel}>
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select a model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {AGENT_MODELS[selectedAgent as keyof typeof AGENT_MODELS]?.map((model) => (
-                    <SelectItem key={model.value} value={model.value}>
-                      {model.label}
-                    </SelectItem>
-                  )) || []}
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+            This task will run with <span className="font-medium text-foreground">Codex</span> on{' '}
+            <span className="font-medium text-foreground">GPT-5.4</span>.
           </div>
 
           {/* Task Options */}

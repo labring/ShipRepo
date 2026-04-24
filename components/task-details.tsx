@@ -103,62 +103,8 @@ interface DiffData {
   language: string
 }
 
-const CODING_AGENTS = [
-  { value: 'claude', label: 'Claude', icon: Claude },
-  { value: 'codex', label: 'Codex', icon: Codex },
-  { value: 'copilot', label: 'Copilot', icon: Copilot },
-  { value: 'cursor', label: 'Cursor', icon: Cursor },
-  { value: 'gemini', label: 'Gemini', icon: Gemini },
-  { value: 'opencode', label: 'opencode', icon: OpenCode },
-] as const
-
-const AGENT_MODELS = {
-  claude: [
-    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
-    { value: 'anthropic/claude-opus-4.6', label: 'Opus 4.6' },
-    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-  ],
-  codex: [{ value: 'gpt-5.4', label: 'GPT-5.4' }],
-  copilot: [
-    { value: 'claude-sonnet-4.5', label: 'Sonnet 4.5' },
-    { value: 'claude-sonnet-4', label: 'Sonnet 4' },
-    { value: 'claude-haiku-4.5', label: 'Haiku 4.5' },
-    { value: 'gpt-5', label: 'GPT-5' },
-  ],
-  cursor: [
-    { value: 'auto', label: 'Auto' },
-    { value: 'composer-1', label: 'Composer' },
-    { value: 'sonnet-4.5', label: 'Sonnet 4.5' },
-    { value: 'sonnet-4.5-thinking', label: 'Sonnet 4.5 Thinking' },
-    { value: 'gpt-5', label: 'GPT-5' },
-    { value: 'gpt-5-codex', label: 'GPT-5 Codex' },
-    { value: 'opus-4.1', label: 'Opus 4.1' },
-    { value: 'grok', label: 'Grok' },
-  ],
-  gemini: [
-    { value: 'gemini-3-pro-preview', label: 'Gemini 3 Pro Preview' },
-    { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
-    { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-  ],
-  opencode: [
-    { value: 'gpt-5', label: 'GPT-5' },
-    { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
-    { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
-    { value: 'gpt-4.1', label: 'GPT-4.1' },
-    { value: 'claude-sonnet-4-5', label: 'Sonnet 4.5' },
-    { value: 'claude-opus-4-5', label: 'Opus 4.5' },
-    { value: 'claude-haiku-4-5', label: 'Haiku 4.5' },
-  ],
-} as const
-
-const DEFAULT_MODELS = {
-  claude: 'claude-sonnet-4-5',
-  codex: 'gpt-5.4',
-  copilot: 'claude-sonnet-4.5',
-  cursor: 'auto',
-  gemini: 'gemini-3-pro-preview',
-  opencode: 'gpt-5',
-} as const
+const FIXED_TASK_AGENT = 'codex'
+const FIXED_TASK_MODEL = 'gpt-5.4'
 
 export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps) {
   const isDevboxRuntimeTask = task.runtimeProvider === 'devbox' || Boolean(task.runtimeName)
@@ -174,10 +120,6 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
   const [showTryAgainDialog, setShowTryAgainDialog] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
   const [isTryingAgain, setIsTryingAgain] = useState(false)
-  const [selectedAgent, setSelectedAgent] = useState(task.selectedAgent || 'claude')
-  const [selectedModel, setSelectedModel] = useState<string>(
-    task.selectedModel || DEFAULT_MODELS[(task.selectedAgent as keyof typeof DEFAULT_MODELS) || 'claude'],
-  )
   const [tryAgainInstallDeps, setTryAgainInstallDeps] = useState(task.installDependencies || false)
   const [tryAgainMaxDuration, setTryAgainMaxDuration] = useState(task.maxDuration || maxSandboxDuration)
   const [tryAgainKeepAlive, setTryAgainKeepAlive] = useState(task.keepAlive || false)
@@ -222,23 +164,6 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
   )
   const healthyCountRef = useRef<number>(0)
   const lastHealthStatusRef = useRef<string | null>(null)
-
-  // Initialize model correctly on mount and when agent changes in Try Again dialog
-  useEffect(() => {
-    const agent = selectedAgent as keyof typeof DEFAULT_MODELS
-    const taskModel = task.selectedModel
-
-    // Check if the task's model exists in the agent's model list
-    const agentModels = AGENT_MODELS[agent]
-    const modelExists = agentModels?.some((m) => m.value === taskModel)
-
-    // Use task model if it exists for the agent, otherwise use default
-    const correctModel = modelExists && taskModel ? taskModel : DEFAULT_MODELS[agent]
-
-    if (correctModel !== selectedModel) {
-      setSelectedModel(correctModel)
-    }
-  }, [selectedAgent, task.selectedModel, selectedModel])
 
   // File search state
   const [fileSearchQuery, setFileSearchQuery] = useState('')
@@ -1131,17 +1056,6 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
     previousStatusRef.current = currentStatus
   }, [task.status, optimisticStatus])
 
-  // Update model when agent changes
-  useEffect(() => {
-    if (selectedAgent) {
-      const agentModels = AGENT_MODELS[selectedAgent as keyof typeof AGENT_MODELS]
-      const defaultModel = DEFAULT_MODELS[selectedAgent as keyof typeof DEFAULT_MODELS]
-      if (defaultModel && agentModels) {
-        setSelectedModel(defaultModel)
-      }
-    }
-  }, [selectedAgent])
-
   // Scroll active tab into view when it changes
   useEffect(() => {
     const tabKey = `${viewMode}-${activeTabIndex}`
@@ -1263,8 +1177,8 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
         body: JSON.stringify({
           prompt: task.prompt,
           repoUrl: task.repoUrl,
-          selectedAgent,
-          selectedModel,
+          selectedAgent: FIXED_TASK_AGENT,
+          selectedModel: FIXED_TASK_MODEL,
           installDependencies: tryAgainInstallDeps,
           maxDuration: tryAgainMaxDuration,
           keepAlive: tryAgainKeepAlive,
@@ -2490,40 +2404,9 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
             <AlertDialogDescription>Create a new task with the same prompt and repository.</AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-4 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Agent</label>
-                <Select value={selectedAgent} onValueChange={setSelectedAgent}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select an agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CODING_AGENTS.map((agent) => (
-                      <SelectItem key={agent.value} value={agent.value}>
-                        <div className="flex items-center gap-2">
-                          <agent.icon className="w-4 h-4" />
-                          <span>{agent.label}</span>
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Model</label>
-                <Select value={selectedModel} onValueChange={setSelectedModel}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select a model" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {AGENT_MODELS[selectedAgent as keyof typeof AGENT_MODELS]?.map((model) => (
-                      <SelectItem key={model.value} value={model.value}>
-                        {model.label}
-                      </SelectItem>
-                    )) || []}
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">
+              This action always creates a new task with <span className="font-medium text-foreground">Codex</span> on{' '}
+              <span className="font-medium text-foreground">GPT-5.4</span>.
             </div>
 
             {/* Task Options */}
