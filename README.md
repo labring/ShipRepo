@@ -1,315 +1,154 @@
-# Coding Agent Template
+# Analyze and Ship to Sealos
 
-A template for building AI-powered coding agents that supports Claude Code, OpenAI's Codex CLI, GitHub Copilot CLI, Cursor CLI, Google Gemini CLI, and opencode with a Devbox runtime to automatically execute coding tasks on your repositories.
+Analyze and Ship to Sealos is a Next.js app for running Sealos-focused coding and deployment tasks against GitHub repositories. A user selects a repo, submits a command, and the app runs a fixed `codex` + `gpt-5.4` execution path inside a Devbox runtime while surfacing logs, diffs, runtime state, and preview links in the UI.
 
-![Coding Agent Template Screenshot](screenshot.png)
+![Analyze and Ship to Sealos Screenshot](screenshot.png)
 
-## Features
+## Why This Project Exists
 
-- **Multi-Agent Support**: Choose from Claude Code, OpenAI Codex CLI, GitHub Copilot CLI, Cursor CLI, Google Gemini CLI, or opencode to execute coding tasks
-- **User Authentication**: Secure sign-in with GitHub OAuth
-- **Multi-User Support**: Each user has their own tasks, API keys, and GitHub connection
-- **Devbox Runtime**: Runs code in isolated, resumable runtimes
-- **AI Gateway Integration**: Built for model routing and observability
-- **AI-Generated Branch Names**: Automatically generates descriptive Git branch names using AI SDK 5 + AI Gateway
-- **Task Management**: Track task progress with real-time updates
-- **Persistent Storage**: Tasks stored in Neon Postgres database
-- **Git Integration**: Automatically creates branches and commits changes
-- **Modern UI**: Clean, responsive interface built with Next.js and Tailwind CSS
-- **MCP Server Support**: Connect MCP servers to Claude Code for extended capabilities (Claude only)
+- Turn a GitHub repository and a deployment-oriented prompt into a tracked task.
+- Keep Sealos deployment work on a single, opinionated execution path instead of a generic agent router.
+- Combine runtime management, chat, file changes, preview controls, and repository context in one app.
+- Support per-user GitHub authentication, API keys, and connectors.
 
-## Quick Start
+## What Developers Get
 
-For detailed setup instructions, see the [Local Development Setup](#local-development-setup) section below.
-
-**TL;DR:**
-1. Clone the repository and install dependencies
-2. Configure GitHub OAuth and required environment variables
-3. Initialize the database and start creating tasks
-
-Or run locally:
-```bash
-git clone <your-repository-url>
-cd coding-agent-template
-pnpm install
-# Set up .env.local with required variables
-pnpm db:push
-pnpm dev
-```
-
-## Usage
-
-1. **Sign In**: Authenticate with GitHub
-2. **Create a Task**: Enter a repository URL and describe what you want the AI to do
-3. **Monitor Progress**: Watch real-time logs as the agent works
-4. **Review Results**: See the changes made and the branch created
-5. **Manage Tasks**: View all your tasks in the sidebar with status updates
-
-## Task Configuration
-
-### Maximum Duration
-
-The maximum duration setting controls how long the runtime sandbox will stay alive from the moment it's created. You can select timeouts ranging from 5 minutes to 5 hours.
-
-- The sandbox is created at the start of the task
-- The timeout begins when the sandbox is created
-- All work (agent execution, dependency installation, etc.) happens within this timeframe
-- When the timeout is reached, the sandbox automatically expires
-
-### Keep Alive Setting
-
-The Keep Alive setting determines what happens to the sandbox after your task completes.
-
-#### Keep Alive OFF (Default)
-
-When Keep Alive is disabled, the sandbox shuts down immediately after the task completes:
-
-**Timeline:**
-1. Task starts and sandbox is created (e.g., with 1 hour timeout)
-2. Agent executes your task
-3. Task completes successfully (e.g., after 10 minutes)
-4. Changes are committed and pushed to the branch
-5. Sandbox immediately shuts down (destroys all processes and the environment)
-6. Task is marked as completed
-
-**Use Keep Alive OFF when:**
-- You're making one-time code changes that don't require iteration
-- You have simple tasks that work on the first try
-- You want to minimize resource usage and costs
-- You don't need to test or manually interact with the code after completion
-
-#### Keep Alive ON
-
-When Keep Alive is enabled, the sandbox stays alive after task completion for the remaining duration:
-
-**Timeline:**
-1. Task starts and sandbox is created (e.g., with 1 hour timeout)
-2. Agent executes your task
-3. Task completes successfully (e.g., after 10 minutes)
-4. Changes are committed and pushed to the branch
-5. Sandbox stays alive with all processes running
-6. You can send follow-up messages for 50 more minutes (until the 1 hour timeout expires)
-7. If the project has a dev server (e.g., `npm run dev`), it automatically starts in the background
-8. After the full timeout duration, the sandbox expires
-
-**Use Keep Alive ON when:**
-- You need to iterate on the code with follow-up messages
-- You want to test changes in the live sandbox environment
-- You anticipate needing to refine or fix issues
-- You want to manually run commands or inspect the environment after completion
-- You're developing a web application and want to see it running
-
-#### Comparison
-
-| Setting | Task completes in 10 min | Remaining sandbox time | Can send follow-ups? | Dev server starts? |
-|---------|-------------------------|------------------------|---------------------|-------------------|
-| Keep Alive ON | Sandbox stays alive | 50 minutes (until timeout) | Yes | Yes (if available) |
-| Keep Alive OFF | Sandbox shuts down | 0 minutes | No | No |
-
-**Note:** The maximum duration timeout always takes precedence. If you set a 1-hour timeout, the sandbox will expire after 1 hour regardless of the Keep Alive setting. Keep Alive only determines whether the sandbox shuts down early (after task completion) or stays alive until the timeout.
-
-## How It Works
-
-1. **Task Creation**: When you submit a task, it's stored in the database
-2. **AI Branch Name Generation**: AI SDK 5 + AI Gateway automatically generates a descriptive branch name based on your task (non-blocking using Next.js 15's `after()`)
-3. **Sandbox Setup**: A Devbox runtime is created with your repository
-4. **Agent Execution**: Your chosen coding agent (Claude Code, Codex CLI, GitHub Copilot CLI, Cursor CLI, Gemini CLI, or opencode) analyzes your prompt and makes changes
-5. **Git Operations**: Changes are committed and pushed to the AI-generated branch
-6. **Cleanup**: The sandbox is shut down to free resources
-
-## AI Branch Name Generation
-
-The system automatically generates descriptive Git branch names using AI SDK 5 and AI Gateway. This feature:
-
-- **Non-blocking**: Uses Next.js 15's `after()` function to generate names without delaying task creation
-- **Descriptive**: Creates meaningful branch names like `feature/user-authentication-A1b2C3` or `fix/memory-leak-parser-X9y8Z7`
-- **Conflict-free**: Adds a 6-character alphanumeric hash to prevent naming conflicts
-- **Fallback**: Gracefully falls back to timestamp-based names if AI generation fails
-- **Context-aware**: Uses task description, repository name, and agent context for better names
-
-### Branch Name Examples
-
-- `feature/add-user-auth-K3mP9n` (for "Add user authentication with JWT")
-- `fix/resolve-memory-leak-B7xQ2w` (for "Fix memory leak in image processing")
-- `chore/update-deps-M4nR8s` (for "Update all project dependencies")
-- `docs/api-endpoints-F9tL5v` (for "Document REST API endpoints")
+- A home command surface for starting Sealos deployment tasks.
+- Task pages with logs, chat, file browsing, diff inspection, runtime controls, and preview actions.
+- Repository pages for commits, issues, and pull requests.
+- Persistent task state in Postgres through Drizzle ORM.
+- Codex Gateway orchestration layered on top of Devbox runtime lifecycle management.
 
 ## Tech Stack
 
-- **Frontend**: Next.js 15, React 19, Tailwind CSS
-- **UI Components**: shadcn/ui
-- **Database**: PostgreSQL with Drizzle ORM
-- **AI SDK**: AI SDK 5
-- **AI Agents**: Claude Code, OpenAI Codex CLI, GitHub Copilot CLI, Cursor CLI, Google Gemini CLI, opencode
-- **Runtime**: Devbox-based execution environment
-- **Authentication**: OAuth with GitHub
-- **Git**: Automated branching and commits with AI-generated branch names
+- Next.js 16
+- React 19
+- Tailwind CSS
+- shadcn/ui
+- PostgreSQL
+- Drizzle ORM and drizzle-kit
+- AI SDK 5
+- Codex Gateway
+- Devbox runtime infrastructure
 
-## MCP Server Support
+## Quick Start
 
-Connect MCP Servers to extend Claude Code with additional tools and integrations. **Currently only works with Claude Code agent.**
+### Prerequisites
 
-### How to Add MCP Servers
+- Node.js 20+
+- pnpm 9+
+- A PostgreSQL database
+- A GitHub OAuth app
+- Access to the Sealos and Devbox environment this app targets
+- An AI gateway key for Codex execution, unless you plan to provide user-scoped keys in the app
 
-1. Go to the "Connectors" tab and click "Add MCP Server"
-2. Enter server details (name, base URL, optional OAuth credentials)
-3. If using OAuth, ensure `ENCRYPTION_KEY` is set in your environment variables
-
-**Note**: `ENCRYPTION_KEY` is required when using MCP servers with OAuth authentication.
-
-## Local Development Setup
-
-### 1. Clone the repository
+### 1. Install dependencies
 
 ```bash
 git clone <your-repository-url>
-cd coding-agent-template
-```
-
-### 2. Install dependencies
-
-```bash
+cd ShipRepo
 pnpm install
 ```
 
-### 3. Set up environment variables
+### 2. Configure environment variables
 
-Create a `.env.local` file with your values:
-
-#### Required Environment Variables (App Infrastructure)
-
-These are set once by you (the app developer) and are used for core infrastructure:
-
-- `POSTGRES_URL`: Your PostgreSQL connection string
-- `DEVBOX_TOKEN`: Token used to provision and access the Devbox runtime API
-- `SEALOS_HOST`: Sealos host entrypoint, for example `staging-usw-1.sealos.io`
-- `JWE_SECRET`: Base64-encoded secret for session encryption (generate with: `openssl rand -base64 32`)
-- `ENCRYPTION_KEY`: 32-byte hex string for encrypting user API keys and tokens (generate with: `openssl rand -hex 32`)
-
-The app derives the rest from `SEALOS_HOST`:
-
-- `region`: `staging-usw-1`
-- `region_url`: `https://staging-usw-1.sealos.io`
-- `template_api`: `https://template.staging-usw-1.sealos.io/api/v2alpha/templates/raw`
-- `devbox_base_url`: `https://devbox-server.staging-usw-1.sealos.io`
-
-#### User Authentication (Required)
-
-Configure GitHub OAuth for user authentication:
+Create `.env.local`:
 
 ```bash
+POSTGRES_URL=
+SEALOS_HOST=
+DEVBOX_TOKEN=
+JWE_SECRET=
+ENCRYPTION_KEY=
 NEXT_PUBLIC_AUTH_PROVIDERS=github
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+AI_GATEWAY_API_KEY=
 ```
 
-Required GitHub OAuth variables:
-- `GITHUB_CLIENT_ID`: Your GitHub OAuth app client ID
-- `GITHUB_CLIENT_SECRET`: Your GitHub OAuth app client secret
-- `APP_BASE_URL`: Optional explicit public app URL for OAuth callbacks in self-hosted deployments
+Optional:
 
-#### API Keys (Optional - Can be per-user)
+- `APP_BASE_URL` for self-hosted callback overrides
+- `NPM_TOKEN` for private npm installs inside task runtimes
+- `MAX_SANDBOX_DURATION` to change the default runtime timeout
+- `MAX_MESSAGES_PER_DAY` to change the per-user daily message limit
 
-These API keys can be set globally (fallback for all users) or left unset to require users to provide their own:
-
-- `ANTHROPIC_API_KEY`: Anthropic API key for Claude agent (users can override in their profile)
-- `AI_GATEWAY_API_KEY`: AI Gateway API key for branch name generation and Codex (users can override)
-- `CURSOR_API_KEY`: For Cursor agent support (users can override)
-- `GEMINI_API_KEY`: For Google Gemini agent support (users can override)
-- `OPENAI_API_KEY`: For Codex and OpenCode agents (users can override)
-
-> **Note**: Users can provide their own API keys in their profile settings, which take precedence over global environment variables.
-
-#### GitHub Repository Access
-
-- ~~`GITHUB_TOKEN`~~: **No longer needed!** Users authenticate with their own GitHub accounts.
-  - Users who sign in with GitHub automatically get repository access via their OAuth token
-
-**How Authentication Works:**
-- **Sign in with GitHub**: Users get immediate repository access via their GitHub OAuth token
-
-#### Optional Environment Variables
-
-- `NPM_TOKEN`: For private npm packages
-- `MAX_SANDBOX_DURATION`: Default maximum sandbox duration in minutes (default: `300` = 5 hours)
-- `MAX_MESSAGES_PER_DAY`: Maximum number of tasks + follow-ups per user per day (default: `5`)
-
-### 4. Set up OAuth Applications
-
-Based on your `NEXT_PUBLIC_AUTH_PROVIDERS` configuration, you'll need to create OAuth apps:
-
-#### GitHub OAuth App (if using GitHub authentication)
-
-1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
-2. Click "New OAuth App"
-3. Fill in the details:
-   - **Application name**: Your app name (e.g., "My Coding Agent")
-   - **Homepage URL**: `http://localhost:3000` (or your production URL)
-   - **Authorization callback URL**: `http://localhost:3000/api/auth/github/callback`
-4. Click "Register application"
-5. Copy the **Client ID** → use for `GITHUB_CLIENT_ID`
-6. Click "Generate a new client secret" → copy and use for `GITHUB_CLIENT_SECRET`
-
-**Required Scopes**: The app will request `repo`, `read:user`, `user:email`, `read:packages`, and `write:packages` scopes to access repositories and push container images to GHCR.
-
-> **Production Deployment**: Remember to add production callback URLs when deploying (e.g., `https://yourdomain.com/api/auth/github/callback`)
-
-### 5. Set up the database
-
-Generate and run database migrations:
+### 3. Apply database migrations
 
 ```bash
-pnpm db:generate
-pnpm db:push
+pnpm db:migrate
 ```
 
-### 6. Start the development server
+`drizzle.config.ts` loads `.env.local` first and falls back to `.env`, so `POSTGRES_URL` must be available before running Drizzle commands.
+
+### 4. Start the app
 
 ```bash
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:3000](http://localhost:3000), sign in with GitHub, choose a repository, and submit a Sealos-oriented task.
+
+## Core Workflow
+
+1. A user signs in with GitHub.
+2. The home page lets the user choose a repository and submit a deployment-oriented command.
+3. The app creates a task, stores it in Postgres, and starts the fixed `codex` + `gpt-5.4` flow.
+4. A Devbox runtime is provisioned or resumed for the task.
+5. The task is executed through the Codex Gateway.
+6. The task page shows logs, runtime state, file changes, preview actions, and follow-up chat.
+
+## Project Structure
+
+- `app/`: Next.js App Router pages and API routes
+- `components/`: UI for the home page, task workspace, repo views, auth, and dialogs
+- `lib/codex-gateway/`: Codex Gateway sessions, turns, streaming, and completion handling
+- `lib/devbox/`: runtime provisioning, reuse, health checks, and lease refresh
+- `lib/db/`: schema, queries, settings, and checked-in migrations
+- `lib/session/` and `lib/auth/`: authentication and session handling
+- `app/repos/[owner]/[repo]/`: repository pages for commits, issues, and pull requests
+- `app/tasks/[taskId]/`: task workspace entry point
+
+## Further Reading
+
+- [reference/architecture.md](reference/architecture.md): request flow, runtime lifecycle, and module boundaries
+- [reference/configuration.md](reference/configuration.md): environment variables, auth setup, migrations, and runtime behavior
 
 ## Development
 
-### Database Operations
+### Common commands
 
 ```bash
-# Generate migrations
+pnpm dev
+pnpm build
+pnpm type-check
+pnpm lint
+pnpm format
+```
+
+### Database commands
+
+```bash
 pnpm db:generate
-
-# Push schema changes
-pnpm db:push
-
-# Open Drizzle Studio
+pnpm db:migrate
 pnpm db:studio
 ```
 
-### Running the App
+## Configuration Notes
 
-```bash
-# Development
-pnpm dev
-
-# Build for production
-pnpm build
-
-# Start production server
-pnpm start
-```
+- The current task execution path is intentionally pinned to `codex` + `gpt-5.4`.
+- `NEXT_PUBLIC_AUTH_PROVIDERS` is expected to include `github`.
+- Users can provide their own API keys in the app, which can override global key configuration.
+- Connectors are managed from the application UI; if a connector stores OAuth credentials, `ENCRYPTION_KEY` must be set.
 
 ## Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
+1. Fork the repository.
+2. Create a branch for your change.
+3. Run `pnpm format`, `pnpm type-check`, and `pnpm lint`.
+4. Verify the change locally.
+5. Open a pull request.
 
-## Security Considerations
+## License
 
-- **Environment Variables**: Never commit `.env` files to version control. All sensitive data should be stored in environment variables.
-- **API Keys**: Rotate your API keys regularly and use the principle of least privilege.
-- **Database Access**: Ensure your PostgreSQL database is properly secured with strong credentials.
-- **Devbox Runtime**: Runtimes are isolated but ensure you're not exposing sensitive data in logs or outputs.
-- **User Authentication**: Each user uses their own GitHub token for repository access - no shared credentials
-- **Encryption**: All sensitive data (tokens, API keys) is encrypted at rest using per-user encryption
+Licensed under Apache 2.0. See [LICENSE](LICENSE).
