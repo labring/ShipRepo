@@ -6,6 +6,8 @@ import { redirectToSignIn } from '@/lib/session/redirect-to-sign-in'
 import { GitHubIcon } from '@/components/icons/github-icon'
 import { useState } from 'react'
 import { getEnabledAuthProviders } from '@/lib/auth/providers'
+import { GitHubPopupAuthError, startGitHubPopupAuth } from '@/lib/auth/github-popup'
+import { toast } from 'sonner'
 
 export function SignIn() {
   const [showDialog, setShowDialog] = useState(false)
@@ -20,9 +22,19 @@ export function SignIn() {
     await redirectToSignIn()
   }
 
-  const handleGitHubSignIn = () => {
+  const handleGitHubSignIn = async () => {
     setLoadingGitHub(true)
-    window.location.href = '/api/auth/signin/github'
+    try {
+      await startGitHubPopupAuth('/api/auth/signin/github')
+      window.location.reload()
+    } catch (error) {
+      if (error instanceof GitHubPopupAuthError && error.code === 'popup_blocked') {
+        toast.error('Please allow popups and try again.')
+      } else {
+        toast.error('GitHub authentication failed. Please try again.')
+      }
+      setLoadingGitHub(false)
+    }
   }
 
   return (

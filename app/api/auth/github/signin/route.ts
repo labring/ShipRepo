@@ -4,8 +4,29 @@ import { getSessionFromReq } from '@/lib/session/server'
 import { GITHUB_OAUTH_SCOPE, getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { generateState } from 'arctic'
+import {
+  GITHUB_AUTH_POPUP_COOKIE,
+  GITHUB_AUTH_POPUP_PARAM,
+  GITHUB_AUTH_POPUP_VALUE,
+} from '@/lib/auth/github-popup-contract'
+
+const GITHUB_AUTH_COOKIE_MAX_AGE = 60 * 10
+
+function setGitHubAuthCookie(store: Awaited<ReturnType<typeof cookies>>, key: string, value: string): void {
+  store.set(key, value, {
+    path: '/',
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: GITHUB_AUTH_COOKIE_MAX_AGE,
+    sameSite: 'lax',
+  })
+}
 
 export async function GET(req: NextRequest): Promise<Response> {
+  if (req.nextUrl.searchParams.get(GITHUB_AUTH_POPUP_PARAM) !== GITHUB_AUTH_POPUP_VALUE) {
+    return new Response('Invalid GitHub authentication request', { status: 400 })
+  }
+
   // Check if user is authenticated with Vercel first
   const session = await getSessionFromReq(req)
   if (!session?.user) {
@@ -27,17 +48,13 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   // Store state and redirect URL
   for (const [key, value] of [
-    [`github_oauth_redirect_to`, redirectTo],
-    [`github_oauth_state`, state],
-    [`github_oauth_user_id`, session.user.id], // Store Vercel user ID
+    [GITHUB_AUTH_POPUP_COOKIE, GITHUB_AUTH_POPUP_VALUE],
+    ['github_auth_redirect_to', redirectTo],
+    ['github_auth_state', state],
+    ['github_auth_mode', 'connect'],
+    ['github_auth_user_id', session.user.id],
   ]) {
-    store.set(key, value, {
-      path: '/',
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      maxAge: 60 * 10, // 10 minutes
-      sameSite: 'lax',
-    })
+    setGitHubAuthCookie(store, key, value)
   }
 
   // Build GitHub authorization URL
@@ -55,6 +72,10 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
+  if (req.nextUrl.searchParams.get(GITHUB_AUTH_POPUP_PARAM) !== GITHUB_AUTH_POPUP_VALUE) {
+    return Response.json({ error: 'Invalid GitHub authentication request' }, { status: 400 })
+  }
+
   // Check if user is authenticated with Vercel first
   const session = await getSessionFromReq(req)
   if (!session?.user) {
@@ -76,17 +97,13 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   // Store state and redirect URL
   for (const [key, value] of [
-    [`github_oauth_redirect_to`, redirectTo],
-    [`github_oauth_state`, state],
-    [`github_oauth_user_id`, session.user.id], // Store Vercel user ID
+    [GITHUB_AUTH_POPUP_COOKIE, GITHUB_AUTH_POPUP_VALUE],
+    ['github_auth_redirect_to', redirectTo],
+    ['github_auth_state', state],
+    ['github_auth_mode', 'connect'],
+    ['github_auth_user_id', session.user.id],
   ]) {
-    store.set(key, value, {
-      path: '/',
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      maxAge: 60 * 10, // 10 minutes
-      sameSite: 'lax',
-    })
+    setGitHubAuthCookie(store, key, value)
   }
 
   // Build GitHub authorization URL

@@ -4,8 +4,29 @@ import { generateState } from 'arctic'
 import { GITHUB_OAUTH_SCOPE, getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { getSessionFromReq } from '@/lib/session/server'
+import {
+  GITHUB_AUTH_POPUP_COOKIE,
+  GITHUB_AUTH_POPUP_PARAM,
+  GITHUB_AUTH_POPUP_VALUE,
+} from '@/lib/auth/github-popup-contract'
+
+const GITHUB_AUTH_COOKIE_MAX_AGE = 60 * 10
+
+function setGitHubAuthCookie(store: Awaited<ReturnType<typeof cookies>>, key: string, value: string): void {
+  store.set(key, value, {
+    path: '/',
+    secure: process.env.NODE_ENV === 'production',
+    httpOnly: true,
+    maxAge: GITHUB_AUTH_COOKIE_MAX_AGE,
+    sameSite: 'lax',
+  })
+}
 
 export async function GET(req: NextRequest): Promise<Response> {
+  if (req.nextUrl.searchParams.get(GITHUB_AUTH_POPUP_PARAM) !== GITHUB_AUTH_POPUP_VALUE) {
+    return new Response('Invalid GitHub authentication request', { status: 400 })
+  }
+
   // Check if user is already authenticated with Vercel
   const session = await getSessionFromReq(req)
 
@@ -36,24 +57,19 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   // Store state and redirect URL
   const cookiesToSet: [string, string][] = [
-    [`github_auth_redirect_to`, redirectTo],
-    [`github_auth_state`, state],
-    [`github_auth_mode`, authMode],
+    [GITHUB_AUTH_POPUP_COOKIE, GITHUB_AUTH_POPUP_VALUE],
+    ['github_auth_redirect_to', redirectTo],
+    ['github_auth_state', state],
+    ['github_auth_mode', authMode],
   ]
 
   // If connecting (user already signed in), store their user ID
   if (!isSignInFlow && session?.user?.id) {
-    cookiesToSet.push([`github_oauth_user_id`, session.user.id])
+    cookiesToSet.push(['github_auth_user_id', session.user.id])
   }
 
   for (const [key, value] of cookiesToSet) {
-    store.set(key, value, {
-      path: '/',
-      secure: process.env.NODE_ENV === 'production',
-      httpOnly: true,
-      maxAge: 60 * 10, // 10 minutes
-      sameSite: 'lax',
-    })
+    setGitHubAuthCookie(store, key, value)
   }
 
   // Build GitHub authorization URL

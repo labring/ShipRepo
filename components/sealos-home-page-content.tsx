@@ -18,6 +18,7 @@ import { taskPromptAtom } from '@/lib/atoms/task'
 import { sessionAtom } from '@/lib/atoms/session'
 import { githubConnectionAtom, githubConnectionInitializedAtom } from '@/lib/atoms/github-connection'
 import type { Session } from '@/lib/session/types'
+import { GitHubPopupAuthError, startGitHubPopupAuth } from '@/lib/auth/github-popup'
 
 interface SealosHomePageContentProps {
   initialSelectedOwner?: string
@@ -121,8 +122,8 @@ export function SealosHomePageContent({
       }
 
       await refreshTasks()
-    } catch (error) {
-      console.error('Error creating task:', error)
+    } catch {
+      console.error('Error creating task')
       toast.error('Failed to create task')
       await refreshTasks()
     } finally {
@@ -135,13 +136,34 @@ export function SealosHomePageContent({
     await redirectToSignIn()
   }
 
-  const handleGitHubSignIn = () => {
+  const handleGitHubSignIn = async () => {
     setLoadingGitHub(true)
-    window.location.href = '/api/auth/signin/github'
+    try {
+      await startGitHubPopupAuth('/api/auth/signin/github')
+      window.location.reload()
+    } catch (error) {
+      if (error instanceof GitHubPopupAuthError && error.code === 'popup_blocked') {
+        toast.error('Please allow popups and try again.')
+      } else {
+        toast.error('GitHub authentication failed. Please try again.')
+      }
+      setLoadingGitHub(false)
+    }
   }
 
-  const handleConnectGitHub = () => {
-    window.location.href = '/api/auth/github/signin'
+  const handleConnectGitHub = async () => {
+    setLoadingGitHub(true)
+    try {
+      await startGitHubPopupAuth('/api/auth/github/signin')
+      window.location.reload()
+    } catch (error) {
+      if (error instanceof GitHubPopupAuthError && error.code === 'popup_blocked') {
+        toast.error('Please allow popups and try again.')
+      } else {
+        toast.error('GitHub authentication failed. Please try again.')
+      }
+      setLoadingGitHub(false)
+    }
   }
 
   const openSignIn = () => {
@@ -191,6 +213,7 @@ export function SealosHomePageContent({
               type="button"
               variant="outline"
               onClick={handleConnectGitHub}
+              disabled={loadingGitHub}
               className="sealos-action-text h-10 rounded-full px-4"
             >
               <GitHubIcon className="h-4 w-4" />
