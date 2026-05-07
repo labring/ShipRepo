@@ -3,6 +3,7 @@ export const GITHUB_AUTH_POPUP_VALUE = 'true'
 export const GITHUB_AUTH_POPUP_COOKIE = 'github_auth_popup'
 export const GITHUB_AUTH_SUCCESS_MESSAGE_TYPE = 'github-auth-success'
 export const GITHUB_AUTH_ERROR_MESSAGE_TYPE = 'github-auth-error'
+export const GITHUB_AUTH_BROADCAST_CHANNEL = 'github-auth'
 
 export type GitHubAuthPopupMessage =
   | { type: typeof GITHUB_AUTH_SUCCESS_MESSAGE_TYPE; status: 'success' }

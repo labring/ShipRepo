@@ -3,11 +3,13 @@ import { OAuth2Client, type OAuth2Tokens } from 'arctic'
 import { getAppBaseUrl } from '@/lib/auth/oauth'
 import { createSession, saveSession } from '@/lib/session/create'
 import { cookies } from 'next/headers'
+import { getAuthCookiePolicyFromRequest } from '@/lib/auth/cookie-policy'
 
 export async function GET(req: NextRequest): Promise<Response> {
   const code = req.nextUrl.searchParams.get('code')
   const state = req.nextUrl.searchParams.get('state')
   const cookieStore = await cookies()
+  const authCookiePolicy = getAuthCookiePolicyFromRequest(req)
   const storedState = cookieStore.get(`vercel_oauth_state`)?.value ?? null
   const storedVerifier = cookieStore.get(`vercel_oauth_code_verifier`)?.value ?? null
   const storedRedirectTo = cookieStore.get(`vercel_oauth_redirect_to`)?.value ?? null
@@ -34,8 +36,8 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   try {
     tokens = await client.validateAuthorizationCode('https://vercel.com/api/login/oauth/token', code, storedVerifier)
-  } catch (error) {
-    console.error('Failed to validate authorization code:', error)
+  } catch {
+    console.error('Failed to validate authorization code')
     return new Response(null, {
       status: 400,
     })
@@ -61,7 +63,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   // Note: Vercel tokens are already stored in users table by upsertUser() in createSession()
 
-  await saveSession(response, session)
+  await saveSession(response, session, authCookiePolicy)
 
   cookieStore.delete(`vercel_oauth_state`)
   cookieStore.delete(`vercel_oauth_code_verifier`)

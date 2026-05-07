@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { getAppBaseUrl } from '@/lib/auth/oauth'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { CodeChallengeMethod, OAuth2Client, generateCodeVerifier, generateState } from 'arctic'
+import { getAuthCookiePolicyFromRequest, getAuthCookieSameSite, getAuthCookieSecure } from '@/lib/auth/cookie-policy'
 
 export async function POST(req: NextRequest): Promise<Response> {
   const client = new OAuth2Client(
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   )
 
   const store = await cookies()
+  const authCookiePolicy = getAuthCookiePolicyFromRequest(req)
   const redirectTo = isRelativeUrl(req.nextUrl.searchParams.get('next') ?? '/')
     ? (req.nextUrl.searchParams.get('next') ?? '/')
     : '/'
@@ -33,10 +35,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   ]) {
     store.set(key, value, {
       path: '/',
-      secure: process.env.NODE_ENV === 'production',
+      secure: getAuthCookieSecure(authCookiePolicy),
       httpOnly: true,
       maxAge: 60 * 10,
-      sameSite: 'lax',
+      sameSite: getAuthCookieSameSite(authCookiePolicy),
     })
   }
 

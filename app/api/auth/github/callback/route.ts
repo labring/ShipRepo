@@ -2,12 +2,15 @@ import { type NextRequest } from 'next/server'
 import { cookies } from 'next/headers'
 import { db } from '@/lib/db/client'
 import { users, accounts, tasks, connectors, keys } from '@/lib/db/schema'
-import { eq, and } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
 import { createGitHubSession, saveSession } from '@/lib/session/create-github'
 import { encrypt } from '@/lib/crypto'
 import { generateId } from '@/lib/utils/id'
+import { planUserKeyMerge } from '@/lib/auth/account-merge'
+import { getAuthCookiePolicyFromRequest } from '@/lib/auth/cookie-policy'
 import {
+  GITHUB_AUTH_BROADCAST_CHANNEL,
   GITHUB_AUTH_ERROR_MESSAGE_TYPE,
   GITHUB_AUTH_POPUP_COOKIE,
   GITHUB_AUTH_POPUP_VALUE,
@@ -37,6 +40,7 @@ function cleanupGitHubAuthCookies(cookieStore: CookieStore): void {
 function createGitHubPopupResponse(req: NextRequest, status: PopupStatus, responseInit?: ResponseInit): Response {
   const origin = new URL(getAppBaseUrl(req)).origin
   const messageType = status === 'success' ? GITHUB_AUTH_SUCCESS_MESSAGE_TYPE : GITHUB_AUTH_ERROR_MESSAGE_TYPE
+  const closeDelayMs = 250
   const html = `<!doctype html>
 <html>
   <head>
@@ -45,8 +49,32 @@ function createGitHubPopupResponse(req: NextRequest, status: PopupStatus, respon
   </head>
   <body>
     <script>
-      window.opener?.postMessage({ type: ${JSON.stringify(messageType)}, status: ${JSON.stringify(status)} }, ${JSON.stringify(origin)});
-      window.close();
+      const githubAuthMessage = { type: ${JSON.stringify(messageType)}, status: ${JSON.stringify(status)} };
+      const githubAuthOrigin = ${JSON.stringify(origin)};
+
+      function postGitHubAuthMessage(target) {
+        try {
+          target?.postMessage(githubAuthMessage, githubAuthOrigin);
+        } catch {}
+      }
+
+      postGitHubAuthMessage(window.opener);
+
+      try {
+        if (window.opener?.frames) {
+          for (let index = 0; index < window.opener.frames.length; index += 1) {
+            postGitHubAuthMessage(window.opener.frames[index]);
+          }
+        }
+      } catch {}
+
+      try {
+        const channel = new BroadcastChannel(${JSON.stringify(GITHUB_AUTH_BROADCAST_CHANNEL)});
+        channel.postMessage(githubAuthMessage);
+        channel.close();
+      } catch {}
+
+      window.setTimeout(() => window.close(), ${closeDelayMs});
     </script>
   </body>
 </html>`
@@ -65,6 +93,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const code = req.nextUrl.searchParams.get('code')
   const state = req.nextUrl.searchParams.get('state')
   const cookieStore = await cookies()
+  const authCookiePolicy = getAuthCookiePolicyFromRequest(req)
 
   const popupCookie = cookieStore.get(GITHUB_AUTH_POPUP_COOKIE)?.value ?? null
   if (popupCookie !== GITHUB_AUTH_POPUP_VALUE) {
@@ -161,13 +190,14 @@ export async function GET(req: NextRequest): Promise<Response> {
       }
 
       const response = createGitHubPopupResponse(req, 'success')
-      await saveSession(response, session)
+      await saveSession(response, session, authCookiePolicy)
       cleanupGitHubAuthCookies(cookieStore)
 
       return response
     }
 
     const encryptedToken = encrypt(tokenData.access_token)
+    const targetUserId = storedUserId!
 
     const existingAccount = await db
       .select()
@@ -178,27 +208,66 @@ export async function GET(req: NextRequest): Promise<Response> {
     if (existingAccount.length > 0) {
       const connectedUserId = existingAccount[0].userId
 
-      if (connectedUserId !== storedUserId) {
+      if (connectedUserId !== targetUserId) {
         console.info('GitHub OAuth account merge started')
 
-        await db.update(tasks).set({ userId: storedUserId! }).where(eq(tasks.userId, connectedUserId))
-        await db.update(connectors).set({ userId: storedUserId! }).where(eq(connectors.userId, connectedUserId))
-        await db.update(accounts).set({ userId: storedUserId! }).where(eq(accounts.userId, connectedUserId))
-        await db.update(keys).set({ userId: storedUserId! }).where(eq(keys.userId, connectedUserId))
-        await db.delete(users).where(eq(users.id, connectedUserId))
+        await db.transaction(async (tx) => {
+          await tx.update(tasks).set({ userId: targetUserId }).where(eq(tasks.userId, connectedUserId))
+          await tx.update(connectors).set({ userId: targetUserId }).where(eq(connectors.userId, connectedUserId))
+
+          const [targetAccount] = await tx
+            .select({ id: accounts.id })
+            .from(accounts)
+            .where(and(eq(accounts.userId, targetUserId), eq(accounts.provider, 'github')))
+            .limit(1)
+
+          const sourceKeys = await tx
+            .select({ id: keys.id, provider: keys.provider })
+            .from(keys)
+            .where(eq(keys.userId, connectedUserId))
+          const targetKeys = await tx
+            .select({ id: keys.id, provider: keys.provider })
+            .from(keys)
+            .where(eq(keys.userId, targetUserId))
+          const keyMergePlan = planUserKeyMerge({ sourceKeys, targetKeys })
+
+          if (keyMergePlan.moveKeyIds.length > 0) {
+            await tx.update(keys).set({ userId: targetUserId }).where(inArray(keys.id, keyMergePlan.moveKeyIds))
+          }
+
+          if (keyMergePlan.deleteKeyIds.length > 0) {
+            await tx.delete(keys).where(inArray(keys.id, keyMergePlan.deleteKeyIds))
+          }
+
+          if (targetAccount) {
+            await tx
+              .update(accounts)
+              .set({
+                accessToken: encryptedToken,
+                externalUserId: `${githubUser.id}`,
+                scope: tokenData.scope,
+                username: githubUser.login,
+                updatedAt: new Date(),
+              })
+              .where(eq(accounts.id, targetAccount.id))
+            await tx.delete(accounts).where(eq(accounts.id, existingAccount[0].id))
+          } else {
+            await tx
+              .update(accounts)
+              .set({
+                userId: targetUserId,
+                accessToken: encryptedToken,
+                scope: tokenData.scope,
+                username: githubUser.login,
+                updatedAt: new Date(),
+              })
+              .where(eq(accounts.id, existingAccount[0].id))
+          }
+
+          await tx.delete(users).where(eq(users.id, connectedUserId))
+        })
 
         console.info('GitHub OAuth account merge completed')
-
-        await db
-          .update(accounts)
-          .set({
-            userId: storedUserId!,
-            accessToken: encryptedToken,
-            scope: tokenData.scope,
-            username: githubUser.login,
-            updatedAt: new Date(),
-          })
-          .where(eq(accounts.id, existingAccount[0].id))
       } else {
         await db
           .update(accounts)
@@ -211,15 +280,34 @@ export async function GET(req: NextRequest): Promise<Response> {
           .where(eq(accounts.id, existingAccount[0].id))
       }
     } else {
-      await db.insert(accounts).values({
-        id: generateId(21),
-        userId: storedUserId!,
-        provider: 'github',
-        externalUserId: `${githubUser.id}`,
-        accessToken: encryptedToken,
-        scope: tokenData.scope,
-        username: githubUser.login,
-      })
+      const [currentAccount] = await db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(and(eq(accounts.userId, targetUserId), eq(accounts.provider, 'github')))
+        .limit(1)
+
+      if (currentAccount) {
+        await db
+          .update(accounts)
+          .set({
+            externalUserId: `${githubUser.id}`,
+            accessToken: encryptedToken,
+            scope: tokenData.scope,
+            username: githubUser.login,
+            updatedAt: new Date(),
+          })
+          .where(eq(accounts.id, currentAccount.id))
+      } else {
+        await db.insert(accounts).values({
+          id: generateId(21),
+          userId: targetUserId,
+          provider: 'github',
+          externalUserId: `${githubUser.id}`,
+          accessToken: encryptedToken,
+          scope: tokenData.scope,
+          username: githubUser.login,
+        })
+      }
     }
 
     cleanupGitHubAuthCookies(cookieStore)
