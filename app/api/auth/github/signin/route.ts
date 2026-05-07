@@ -4,6 +4,7 @@ import { getSessionFromReq } from '@/lib/session/server'
 import { GITHUB_OAUTH_SCOPE, getAppBaseUrl, getGitHubClientId } from '@/lib/auth/oauth'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { generateState } from 'arctic'
+import { getAuthCookiePolicyFromRequest, getAuthCookieSameSite, getAuthCookieSecure } from '@/lib/auth/cookie-policy'
 import {
   GITHUB_AUTH_POPUP_COOKIE,
   GITHUB_AUTH_POPUP_PARAM,
@@ -12,13 +13,18 @@ import {
 
 const GITHUB_AUTH_COOKIE_MAX_AGE = 60 * 10
 
-function setGitHubAuthCookie(store: Awaited<ReturnType<typeof cookies>>, key: string, value: string): void {
+function setGitHubAuthCookie(
+  store: Awaited<ReturnType<typeof cookies>>,
+  key: string,
+  value: string,
+  authCookiePolicy: ReturnType<typeof getAuthCookiePolicyFromRequest>,
+): void {
   store.set(key, value, {
     path: '/',
-    secure: process.env.NODE_ENV === 'production',
+    secure: getAuthCookieSecure(authCookiePolicy),
     httpOnly: true,
     maxAge: GITHUB_AUTH_COOKIE_MAX_AGE,
-    sameSite: 'lax',
+    sameSite: getAuthCookieSameSite(authCookiePolicy),
   })
 }
 
@@ -42,6 +48,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   const state = generateState()
   const store = await cookies()
+  const authCookiePolicy = getAuthCookiePolicyFromRequest(req)
   const redirectTo = isRelativeUrl(req.nextUrl.searchParams.get('next') ?? '/')
     ? (req.nextUrl.searchParams.get('next') ?? '/')
     : '/'
@@ -54,7 +61,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     ['github_auth_mode', 'connect'],
     ['github_auth_user_id', session.user.id],
   ]) {
-    setGitHubAuthCookie(store, key, value)
+    setGitHubAuthCookie(store, key, value, authCookiePolicy)
   }
 
   // Build GitHub authorization URL
@@ -91,6 +98,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const state = generateState()
   const store = await cookies()
+  const authCookiePolicy = getAuthCookiePolicyFromRequest(req)
   const redirectTo = isRelativeUrl(req.nextUrl.searchParams.get('next') ?? '/')
     ? (req.nextUrl.searchParams.get('next') ?? '/')
     : '/'
@@ -103,7 +111,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     ['github_auth_mode', 'connect'],
     ['github_auth_user_id', session.user.id],
   ]) {
-    setGitHubAuthCookie(store, key, value)
+    setGitHubAuthCookie(store, key, value, authCookiePolicy)
   }
 
   // Build GitHub authorization URL

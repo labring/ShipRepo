@@ -6,6 +6,7 @@ import { encryptJWE } from '@/lib/jwe/encrypt'
 import { fetchUser } from '@/lib/vercel-client/user'
 import { upsertUser } from '@/lib/db/users'
 import { encrypt } from '@/lib/crypto'
+import { getAuthCookieHeaderAttributes, type AuthCookiePolicyInput } from '@/lib/auth/cookie-policy'
 import ms from 'ms'
 
 export async function createSession(tokens: Tokens): Promise<Session | undefined> {
@@ -42,17 +43,21 @@ export async function createSession(tokens: Tokens): Promise<Session | undefined
     },
   }
 
-  console.log('Created session with internal user ID:', session.user.id)
+  console.log('Created session')
   return session
 }
 
 const COOKIE_TTL = ms('1y')
 
-export async function saveSession(res: Response, session: Session | undefined): Promise<string | undefined> {
+export async function saveSession(
+  res: Response,
+  session: Session | undefined,
+  authCookiePolicy?: AuthCookiePolicyInput,
+): Promise<string | undefined> {
   if (!session) {
     res.headers.append(
       'Set-Cookie',
-      `${SESSION_COOKIE_NAME}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure; ' : ''}SameSite=Lax`,
+      `${SESSION_COOKIE_NAME}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; ${getAuthCookieHeaderAttributes(authCookiePolicy)}`,
     )
     return
   }
@@ -61,7 +66,7 @@ export async function saveSession(res: Response, session: Session | undefined): 
   const expires = new Date(Date.now() + COOKIE_TTL).toUTCString()
   res.headers.append(
     'Set-Cookie',
-    `${SESSION_COOKIE_NAME}=${value}; Path=/; Max-Age=${COOKIE_TTL / 1000}; Expires=${expires}; HttpOnly; ${process.env.NODE_ENV === 'production' ? 'Secure; ' : ''}SameSite=Lax`,
+    `${SESSION_COOKIE_NAME}=${value}; Path=/; Max-Age=${COOKIE_TTL / 1000}; Expires=${expires}; HttpOnly; ${getAuthCookieHeaderAttributes(authCookiePolicy)}`,
   )
   return value
 }

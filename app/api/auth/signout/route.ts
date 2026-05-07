@@ -4,9 +4,11 @@ import { getSessionFromReq } from '@/lib/session/server'
 import { isRelativeUrl } from '@/lib/utils/is-relative-url'
 import { saveSession } from '@/lib/session/create'
 import { getOAuthToken } from '@/lib/session/get-oauth-token'
+import { getAuthCookiePolicyFromRequest } from '@/lib/auth/cookie-policy'
 
 export async function GET(req: NextRequest) {
   const session = await getSessionFromReq(req)
+  const authCookiePolicy = getAuthCookiePolicyFromRequest(req)
   if (session) {
     // Check which provider the user authenticated with
     if (session.authProvider === 'github') {
@@ -24,8 +26,8 @@ export async function GET(req: NextRequest) {
             body: JSON.stringify({ access_token: tokenData.accessToken }),
           })
         }
-      } catch (error) {
-        console.error('Failed to revoke GitHub token:', error)
+      } catch {
+        console.error('Failed to revoke GitHub token')
       }
     } else {
       // Revoke Vercel token - fetch from database
@@ -41,8 +43,8 @@ export async function GET(req: NextRequest) {
             },
           })
         }
-      } catch (error) {
-        console.error('Failed to revoke Vercel token:', error)
+      } catch {
+        console.error('Failed to revoke Vercel token')
       }
     }
   }
@@ -51,6 +53,6 @@ export async function GET(req: NextRequest) {
     url: isRelativeUrl(req.nextUrl.searchParams.get('next') ?? '/') ? req.nextUrl.searchParams.get('next') : '/',
   })
 
-  await saveSession(response, undefined)
+  await saveSession(response, undefined, authCookiePolicy)
   return response
 }
