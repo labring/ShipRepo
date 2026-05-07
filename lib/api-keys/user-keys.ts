@@ -5,13 +5,14 @@ import { keys } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
 import { getServerSession } from '@/lib/session/get-server-session'
 import { decrypt } from '@/lib/crypto'
+import { AIPROXY_MODEL_BASE_URL } from '@/lib/aiproxy/constants'
 
 export type Provider = 'openai' | 'gemini' | 'cursor' | 'anthropic' | 'aigateway' | 'aiproxy'
 export type GatewayProvider = 'aigateway' | 'aiproxy'
 
 export const GATEWAY_BASE_URLS: Record<GatewayProvider, string> = {
   aigateway: 'https://ai-gateway.vercel.sh',
-  aiproxy: 'https://aiproxy.usw-1.sealos.io',
+  aiproxy: AIPROXY_MODEL_BASE_URL,
 }
 
 export const GATEWAY_ENV_KEYS: Record<GatewayProvider, 'AI_GATEWAY_API_KEY' | 'AIPROXY_API_KEY'> = {

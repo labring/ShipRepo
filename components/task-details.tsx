@@ -90,6 +90,7 @@ import PlaywrightIcon from '@/components/icons/playwright-icon'
 import SupabaseIcon from '@/components/icons/supabase-icon'
 import VercelIcon from '@/components/icons/vercel-icon'
 import { PRStatusIcon } from '@/components/pr-status-icon'
+import { ensureAiProxyProvisioned } from '@/lib/aiproxy/client-provisioning'
 
 interface TaskDetailsProps {
   task: Task
@@ -1169,6 +1170,13 @@ export function TaskDetails({ task, maxSandboxDuration = 300 }: TaskDetailsProps
   const handleTryAgain = async () => {
     setIsTryingAgain(true)
     try {
+      const isAiProxyProvisioned = await ensureAiProxyProvisioned()
+
+      if (!isAiProxyProvisioned) {
+        toast.error('Failed to prepare AIProxy configuration')
+        return
+      }
+
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: {
