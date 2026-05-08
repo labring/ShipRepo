@@ -9,6 +9,7 @@ import { useTasks } from '@/components/app-layout'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { RevertCommitDialog } from '@/components/revert-commit-dialog'
+import { ensureAiProxyProvisioned } from '@/lib/aiproxy/client-provisioning'
 
 function formatDistanceToNow(date: Date): string {
   const now = new Date()
@@ -89,6 +90,13 @@ export function RepoCommits({ owner, repo }: RepoCommitsProps) {
     keepAlive: boolean
   }) => {
     try {
+      const isAiProxyProvisioned = await ensureAiProxyProvisioned()
+
+      if (!isAiProxyProvisioned) {
+        toast.error('Failed to prepare AIProxy configuration')
+        return
+      }
+
       const repoUrl = `https://github.com/${owner}/${repo}`
       const commitShortSha = config.commit.sha.substring(0, 7)
       const commitMessage = config.commit.commit.message.split('\n')[0]

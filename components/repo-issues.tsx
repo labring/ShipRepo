@@ -21,6 +21,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
 import { User, Calendar, MessageSquare, MoreVertical, ListTodo } from 'lucide-react'
 import { toast } from 'sonner'
+import { ensureAiProxyProvisioned } from '@/lib/aiproxy/client-provisioning'
 const FIXED_TASK_AGENT = 'codex'
 const FIXED_TASK_MODEL = 'gpt-5.4'
 
@@ -117,6 +118,13 @@ export function RepoIssues({ owner, repo }: RepoIssuesProps) {
 
     setIsCreatingTask(true)
     try {
+      const isAiProxyProvisioned = await ensureAiProxyProvisioned()
+
+      if (!isAiProxyProvisioned) {
+        toast.error('Failed to prepare AIProxy configuration')
+        return
+      }
+
       const repoUrl = `https://github.com/${owner}/${repo}`
       const prompt = `Fix issue #${selectedIssue.number}: ${selectedIssue.title}${selectedIssue.body ? `\n\n${selectedIssue.body}` : ''}`
 

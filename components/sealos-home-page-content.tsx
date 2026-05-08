@@ -19,6 +19,7 @@ import { sessionAtom } from '@/lib/atoms/session'
 import { githubConnectionAtom, githubConnectionInitializedAtom } from '@/lib/atoms/github-connection'
 import type { Session } from '@/lib/session/types'
 import { GitHubPopupAuthError, startGitHubPopupAuth } from '@/lib/auth/github-popup'
+import { ensureAiProxyProvisioned } from '@/lib/aiproxy/client-provisioning'
 
 interface SealosHomePageContentProps {
   initialSelectedOwner?: string
@@ -99,13 +100,21 @@ export function SealosHomePageContent({
       return
     }
 
-    setTaskPrompt('')
     setIsSubmitting(true)
 
-    const { id } = addTaskOptimistically(data)
-    router.push(`/tasks/${id}`)
-
     try {
+      const isAiProxyProvisioned = await ensureAiProxyProvisioned()
+
+      if (!isAiProxyProvisioned) {
+        toast.error('Failed to prepare AIProxy configuration')
+        return
+      }
+
+      setTaskPrompt('')
+
+      const { id } = addTaskOptimistically(data)
+      router.push(`/tasks/${id}`)
+
       const response = await fetch('/api/tasks', {
         method: 'POST',
         headers: {
