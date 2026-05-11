@@ -157,7 +157,7 @@ export function TaskForm({
     ? 'Sign in first, then choose a GitHub repository and tell Sealos how it should be analyzed, built, and deployed.'
     : hasSelectedRepo
       ? 'Tell Sealos what you want to do with this repository. A simple deployment request is enough.'
-      : 'Connect GitHub if needed, choose a repository, then describe how Sealos should analyze, build, and deploy it.'
+      : 'Sign in with GitHub, choose a repository, then describe how Sealos should analyze, build, and deploy it.'
 
   const repoBannerText = hasSelectedRepo
     ? `${selectedOwner}/${selectedRepo}`

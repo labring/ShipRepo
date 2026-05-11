@@ -4,7 +4,6 @@ import { usePathname, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { SharedHeader } from '@/components/shared-header'
 import { Button } from '@/components/ui/button'
-import type { Session } from '@/lib/session/types'
 import { cn } from '@/lib/utils'
 import { setSelectedOwner, setSelectedRepo } from '@/lib/utils/cookies'
 import { Plus } from 'lucide-react'
@@ -12,13 +11,11 @@ import { Plus } from 'lucide-react'
 interface RepoLayoutProps {
   owner: string
   repo: string
-  user: Session['user'] | null
-  authProvider: Session['authProvider'] | null
   initialStars?: number
   children: React.ReactNode
 }
 
-export function RepoLayout({ owner, repo, user, authProvider, initialStars = 1200, children }: RepoLayoutProps) {
+export function RepoLayout({ owner, repo, initialStars = 1200, children }: RepoLayoutProps) {
   const pathname = usePathname()
   const router = useRouter()
 

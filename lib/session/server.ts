@@ -4,15 +4,19 @@ import { SESSION_COOKIE_NAME } from './constants'
 import { decryptJWE } from '@/lib/jwe/decrypt'
 
 export async function getSessionFromCookie(cookieValue?: string): Promise<Session | undefined> {
-  if (cookieValue) {
-    const decrypted = await decryptJWE<Session>(cookieValue)
-    if (decrypted) {
-      return {
-        created: decrypted.created,
-        authProvider: decrypted.authProvider,
-        user: decrypted.user,
-      }
-    }
+  if (!cookieValue) {
+    return undefined
+  }
+
+  const decrypted = await decryptJWE<Session>(cookieValue)
+  if (!decrypted || decrypted.authProvider !== 'github') {
+    return undefined
+  }
+
+  return {
+    created: decrypted.created,
+    authProvider: 'github',
+    user: decrypted.user,
   }
 }
 

@@ -298,10 +298,8 @@ export const selectConnectorSchema = z.object({
 export type Connector = z.infer<typeof selectConnectorSchema>
 export type InsertConnector = z.infer<typeof insertConnectorSchema>
 
-// Accounts table - Additional accounts linked to users
-// Currently only GitHub can be connected as an additional account
-// (e.g., Vercel users can connect their GitHub account)
-// Multiple users can connect to the same external account (each as a separate record)
+// Accounts table - additional OAuth accounts linked to users.
+// Kept for legacy users who connected GitHub before GitHub-only sign-in.
 export const accounts = pgTable(
   'accounts',
   {

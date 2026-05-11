@@ -238,15 +238,13 @@ Never expose these in logs or to the client:
 
 ### Client-Safe Variables
 
-Only these variables should be exposed to the client (via `NEXT_PUBLIC_` prefix):
-
-- `NEXT_PUBLIC_AUTH_PROVIDERS` - Available auth providers
+The current app does not require any client-safe auth provider variables. Do not add `NEXT_PUBLIC_` variables unless the app code explicitly needs them.
 
 ### Runtime Variables Used By Current App Code
 
 The current codebase expects these environment variables:
 
-- Required core runtime: `POSTGRES_URL`, `SEALOS_HOST`, `DEVBOX_TOKEN`, `JWE_SECRET`, `ENCRYPTION_KEY`, `NEXT_PUBLIC_AUTH_PROVIDERS`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
+- Required core runtime: `POSTGRES_URL`, `SEALOS_HOST`, `DEVBOX_TOKEN`, `JWE_SECRET`, `ENCRYPTION_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`
 - Required for Devbox JWT auth when `DEVBOX_TOKEN` is not set: `DEVBOX_JWT_SIGNING_KEY`
 - Required for AI-generated branch names, titles, and commit messages: `AI_GATEWAY_API_KEY`
 - Optional callback override for self-hosted deployments: `APP_BASE_URL`

@@ -3,6 +3,7 @@ import { getSessionFromReq } from '@/lib/session/server'
 import { db } from '@/lib/db/client'
 import { users, accounts } from '@/lib/db/schema'
 import { eq, and } from 'drizzle-orm'
+import { getOAuthToken } from '@/lib/session/get-oauth-token'
 
 export async function GET(req: NextRequest) {
   const session = await getSessionFromReq(req)
@@ -17,6 +18,23 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const tokenData = await getOAuthToken(session.user.id, 'github')
+    if (!tokenData) {
+      return Response.json({ connected: false })
+    }
+
+    const githubResponse = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${tokenData.accessToken}`,
+        Accept: 'application/vnd.github.v3+json',
+      },
+      cache: 'no-store',
+    })
+
+    if (!githubResponse.ok) {
+      return Response.json({ connected: false })
+    }
+
     // Check if user has GitHub as connected account
     const account = await db
       .select({
@@ -54,8 +72,8 @@ export async function GET(req: NextRequest) {
     }
 
     return Response.json({ connected: false })
-  } catch (error) {
-    console.error('Error checking GitHub connection status:', error)
+  } catch {
+    console.error('Error checking GitHub connection status')
     return Response.json({ connected: false, error: 'Failed to check status' }, { status: 500 })
   }
 }

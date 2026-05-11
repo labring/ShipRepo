@@ -5,12 +5,9 @@ import { useTask } from '@/lib/hooks/use-task'
 import { TaskChat } from '@/components/task-chat'
 import { SharedHeader } from '@/components/shared-header'
 import { TaskActions } from '@/components/task-actions'
-import type { Session } from '@/lib/session/types'
 
 interface SealosTaskPageClientProps {
   taskId: string
-  user: Session['user'] | null
-  authProvider: Session['authProvider'] | null
   initialStars?: number
   maxSandboxDuration?: number
 }
