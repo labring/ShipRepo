@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { SharedHeader } from '@/components/shared-header'
-import type { Session } from '@/lib/session/types'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { RepoCommits } from '@/components/repo-commits'
 import { RepoPullRequests } from '@/components/repo-pull-requests'
@@ -11,12 +10,10 @@ import { GitBranch, GitPullRequest } from 'lucide-react'
 interface RepoPageClientProps {
   owner: string
   repo: string
-  user: Session['user'] | null
-  authProvider: Session['authProvider'] | null
   initialStars?: number
 }
 
-export function RepoPageClient({ owner, repo, user, authProvider, initialStars = 1200 }: RepoPageClientProps) {
+export function RepoPageClient({ owner, repo, initialStars = 1200 }: RepoPageClientProps) {
   const [activeTab, setActiveTab] = useState('commits')
 
   const headerLeftActions = (

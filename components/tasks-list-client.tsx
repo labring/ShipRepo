@@ -22,13 +22,10 @@ import { AlertCircle, Trash2, Square, StopCircle, CheckSquare, X, Clock } from '
 import { toast } from 'sonner'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import type { Session } from '@/lib/session/types'
 import { PRStatusIcon } from '@/components/pr-status-icon'
 import { PRCheckStatus } from '@/components/pr-check-status'
 
 interface TasksListClientProps {
-  user: Session['user'] | null
-  authProvider: Session['authProvider'] | null
   initialStars?: number
 }
 
@@ -49,7 +46,7 @@ function getTimeAgo(date: Date): string {
   return new Date(date).toLocaleDateString()
 }
 
-export function TasksListClient({ user, authProvider, initialStars = 1200 }: TasksListClientProps) {
+export function TasksListClient({ initialStars = 1200 }: TasksListClientProps) {
   const { toggleSidebar, refreshTasks } = useTasks()
   const router = useRouter()
   const [tasks, setTasks] = useState<Task[]>([])

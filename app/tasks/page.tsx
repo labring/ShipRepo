@@ -12,5 +12,5 @@ export default async function TasksListPage() {
     redirect('/')
   }
 
-  return <TasksListClient user={session.user} authProvider={session.authProvider} initialStars={stars} />
+  return <TasksListClient initialStars={stars} />
 }

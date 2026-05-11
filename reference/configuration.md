@@ -13,7 +13,6 @@ These values are required for the app to boot and run its main task flow:
 - `DEVBOX_TOKEN`: static Devbox API token
 - `JWE_SECRET`: secret for session encryption
 - `ENCRYPTION_KEY`: symmetric key used to encrypt stored tokens and user API keys
-- `NEXT_PUBLIC_AUTH_PROVIDERS`: should include `github` for the current primary flow
 - `GITHUB_CLIENT_ID`: GitHub OAuth client ID
 - `GITHUB_CLIENT_SECRET`: GitHub OAuth client secret
 
@@ -49,7 +48,7 @@ For a host such as `staging-usw-1.sealos.io`, the app derives:
 
 ### GitHub OAuth
 
-The current primary sign-in flow is GitHub-based.
+The only supported sign-in flow is GitHub OAuth.
 
 Required OAuth scopes are defined in `lib/auth/oauth.ts`:
 

@@ -54,21 +54,6 @@ test('public GitHub sign-in route preserves sign-in intent inside iframes', () =
   assert.doesNotMatch(source, /authMode = isSignInFlow \? 'signin' : 'connect'/)
 })
 
-test('account merge does not move duplicate key providers onto the target user', async () => {
-  const { planUserKeyMerge } = await import('./account-merge')
-
-  const plan = planUserKeyMerge({
-    sourceKeys: [
-      { id: 'source-aiproxy-key', provider: 'aiproxy' },
-      { id: 'source-openai-key', provider: 'openai' },
-    ],
-    targetKeys: [{ id: 'target-aiproxy-key', provider: 'aiproxy' }],
-  })
-
-  assert.deepEqual(plan.moveKeyIds, ['source-openai-key'])
-  assert.deepEqual(plan.deleteKeyIds, ['source-aiproxy-key'])
-})
-
 test('GitHub callback notifies embedded opener frames before closing popup', () => {
   const source = readRepoFile('app/api/auth/github/callback/route.ts')
 

@@ -19,15 +19,7 @@ export default async function TaskPage({ params }: TaskPageProps) {
 
   const stars = await getGitHubStars()
 
-  return (
-    <SealosTaskPageClient
-      taskId={taskId}
-      user={session?.user ?? null}
-      authProvider={session?.authProvider ?? null}
-      initialStars={stars}
-      maxSandboxDuration={maxSandboxDuration}
-    />
-  )
+  return <SealosTaskPageClient taskId={taskId} initialStars={stars} maxSandboxDuration={maxSandboxDuration} />
 }
 
 export async function generateMetadata({ params }: TaskPageProps): Promise<Metadata> {

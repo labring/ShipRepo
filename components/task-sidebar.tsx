@@ -540,7 +540,7 @@ export function TaskSidebar({ tasks, width = 288 }: TaskSidebarProps) {
             {!githubConnection.connected ? (
               <Card>
                 <CardContent className="p-3 text-center text-xs text-muted-foreground">
-                  Connect GitHub to view your repositories
+                  GitHub session unavailable. Sign out and sign in again.
                 </CardContent>
               </Card>
             ) : (reposLoading && repos.length === 0 && !isSearching) ||

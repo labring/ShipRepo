@@ -20,8 +20,8 @@ export function SessionProvider() {
         const data: SessionUserInfo = await response.json()
         setSession(data)
         setInitialized(true)
-      } catch (error) {
-        console.error('Failed to fetch session:', error)
+      } catch {
+        console.error('Failed to fetch session')
         setSession({ user: undefined })
         setInitialized(true)
       }
@@ -33,8 +33,8 @@ export function SessionProvider() {
         const data: GitHubConnection = await response.json()
         setGitHubConnection(data)
         setGitHubInitialized(true)
-      } catch (error) {
-        console.error('Failed to fetch GitHub connection:', error)
+      } catch {
+        console.error('Failed to fetch GitHub connection')
         setGitHubConnection({ connected: false })
         setGitHubInitialized(true)
       }

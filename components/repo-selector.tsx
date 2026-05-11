@@ -117,23 +117,13 @@ export function RepoSelector({
         // Fetch both user and organizations
         const [userResponse, orgsResponse] = await Promise.all([fetch('/api/github/user'), fetch('/api/github/orgs')])
 
-        // Check for authentication errors - disconnect GitHub if auth fails
+        // Check for authentication errors and mark the local GitHub session unavailable.
         if (!userResponse.ok) {
           if (userResponse.status === 401 || userResponse.status === 403) {
             // Clear cache using atoms
             setOwners(null)
 
-            // Call backend to disconnect GitHub
-            try {
-              await fetch('/api/auth/github/disconnect', {
-                method: 'POST',
-                credentials: 'include',
-              })
-            } catch (error) {
-              console.error('Error disconnecting GitHub:', error)
-            }
-
-            // Update connection state to trigger "Connect GitHub" button
+            // Update connection state to show the GitHub session unavailable state.
             setGitHubConnection({ connected: false })
             setLoadingOwners(false)
             setIsRefreshing(false)
@@ -171,18 +161,8 @@ export function RepoSelector({
 
         setOwners(sortedOwners)
         // Cache is automatic with atomWithStorage
-      } catch (error) {
-        console.error('Error loading owners:', error)
-
-        // Call backend to disconnect GitHub
-        try {
-          await fetch('/api/auth/github/disconnect', {
-            method: 'POST',
-            credentials: 'include',
-          })
-        } catch (disconnectError) {
-          console.error('Error disconnecting GitHub:', disconnectError)
-        }
+      } catch {
+        console.error('Error loading owners')
 
         // On any error, clear the connection
         setGitHubConnection({ connected: false })
@@ -260,8 +240,8 @@ export function RepoSelector({
           setTemporaryOwner(null)
           setTemporaryRepo(null)
         }
-      } catch (error) {
-        console.error('Error verifying external repo:', error)
+      } catch {
+        console.error('Error verifying external repo')
         setTemporaryOwner(null)
         setTemporaryRepo(null)
       }
@@ -308,17 +288,7 @@ export function RepoSelector({
               // Clear cache using atoms
               setOwners(null)
 
-              // Call backend to disconnect GitHub
-              try {
-                await fetch('/api/auth/github/disconnect', {
-                  method: 'POST',
-                  credentials: 'include',
-                })
-              } catch (error) {
-                console.error('Error disconnecting GitHub:', error)
-              }
-
-              // Update connection state to trigger "Connect GitHub" button
+              // Update connection state to show the GitHub session unavailable state.
               setGitHubConnection({ connected: false })
               setLoadingRepos(false)
               setIsRefreshing(false)
@@ -330,18 +300,8 @@ export function RepoSelector({
           const reposList = await response.json()
           setRepos(reposList)
           // Cache is automatic with atomWithStorage
-        } catch (error) {
-          console.error('Error loading repos:', error)
-
-          // Call backend to disconnect GitHub
-          try {
-            await fetch('/api/auth/github/disconnect', {
-              method: 'POST',
-              credentials: 'include',
-            })
-          } catch (disconnectError) {
-            console.error('Error disconnecting GitHub:', disconnectError)
-          }
+        } catch {
+          console.error('Error loading repos')
 
           // On any error, clear the connection
           setGitHubConnection({ connected: false })

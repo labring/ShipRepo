@@ -12,8 +12,6 @@ import { TaskForm } from '@/components/task-form'
 import { GitHubIcon } from '@/components/icons/github-icon'
 import { useTasks } from '@/components/app-layout'
 import { setSelectedOwner, setSelectedRepo } from '@/lib/utils/cookies'
-import { redirectToSignIn } from '@/lib/session/redirect-to-sign-in'
-import { getEnabledAuthProviders } from '@/lib/auth/providers'
 import { taskPromptAtom } from '@/lib/atoms/task'
 import { sessionAtom } from '@/lib/atoms/session'
 import { githubConnectionAtom, githubConnectionInitializedAtom } from '@/lib/atoms/github-connection'
@@ -45,7 +43,6 @@ export function SealosHomePageContent({
   const [selectedOwner, setSelectedOwnerState] = useState(initialSelectedOwner)
   const [selectedRepo, setSelectedRepoState] = useState(initialSelectedRepo)
   const [showSignInDialog, setShowSignInDialog] = useState(false)
-  const [loadingVercel, setLoadingVercel] = useState(false)
   const [loadingGitHub, setLoadingGitHub] = useState(false)
   const router = useRouter()
   const { refreshTasks, addTaskOptimistically } = useTasks()
@@ -54,7 +51,6 @@ export function SealosHomePageContent({
   const githubConnection = useAtomValue(githubConnectionAtom)
   const githubConnectionInitialized = useAtomValue(githubConnectionInitializedAtom)
   const isGitHubAuthUser = session.authProvider === 'github'
-  const { github: hasGitHub, vercel: hasVercel } = getEnabledAuthProviders()
   const isAuthenticated = Boolean(user)
   const visibleSelectedOwner = isAuthenticated ? selectedOwner : ''
   const visibleSelectedRepo = isAuthenticated ? selectedRepo : ''
@@ -140,30 +136,10 @@ export function SealosHomePageContent({
     }
   }
 
-  const handleVercelSignIn = async () => {
-    setLoadingVercel(true)
-    await redirectToSignIn()
-  }
-
   const handleGitHubSignIn = async () => {
     setLoadingGitHub(true)
     try {
       await startGitHubPopupAuth('/api/auth/signin/github')
-      window.location.reload()
-    } catch (error) {
-      if (error instanceof GitHubPopupAuthError && error.code === 'popup_blocked') {
-        toast.error('Please allow popups and try again.')
-      } else {
-        toast.error('GitHub authentication failed. Please try again.')
-      }
-      setLoadingGitHub(false)
-    }
-  }
-
-  const handleConnectGitHub = async () => {
-    setLoadingGitHub(true)
-    try {
-      await startGitHubPopupAuth('/api/auth/github/signin')
       window.location.reload()
     } catch (error) {
       if (error instanceof GitHubPopupAuthError && error.code === 'popup_blocked') {
@@ -196,7 +172,7 @@ export function SealosHomePageContent({
       ? ''
       : canSelectRepository
         ? 'Select a repository above to continue.'
-        : 'Connect GitHub to choose a repository.'
+        : 'GitHub session unavailable. Sign out and sign in again.'
 
   const commandHeader = (
     <div className="flex flex-col gap-3 border-b border-border/60 pb-4 sm:flex-row sm:items-end sm:justify-between">
@@ -218,16 +194,7 @@ export function SealosHomePageContent({
               />
             </div>
           ) : (
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleConnectGitHub}
-              disabled={loadingGitHub}
-              className="sealos-action-text h-10 rounded-full px-4"
-            >
-              <GitHubIcon className="h-4 w-4" />
-              Connect GitHub
-            </Button>
+            <div className="sealos-helper">GitHub session unavailable. Sign out and sign in again.</div>
           )}
         </div>
       </div>
@@ -280,80 +247,37 @@ export function SealosHomePageContent({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Sign in to continue</DialogTitle>
-            <DialogDescription>
-              {hasGitHub && hasVercel
-                ? 'You need to sign in to create tasks. Choose how you want to sign in.'
-                : hasVercel
-                  ? 'You need to sign in with Vercel to create tasks.'
-                  : 'You need to sign in with GitHub to create tasks.'}
-            </DialogDescription>
+            <DialogDescription>You need to sign in with GitHub to create tasks.</DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-3 py-4">
-            {hasVercel && (
-              <Button
-                onClick={handleVercelSignIn}
-                disabled={loadingVercel || loadingGitHub}
-                variant="outline"
-                size="lg"
-                className="w-full"
-              >
-                {loadingVercel ? (
-                  <>
-                    <svg
-                      className="mr-2 -ml-1 h-4 w-4 animate-spin"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4Z"
-                      />
-                    </svg>
-                    Signing in with Vercel...
-                  </>
-                ) : (
-                  'Sign in with Vercel'
-                )}
-              </Button>
-            )}
-
-            {hasGitHub && (
-              <Button
-                onClick={handleGitHubSignIn}
-                disabled={loadingVercel || loadingGitHub}
-                variant="outline"
-                size="lg"
-                className="w-full"
-              >
-                {loadingGitHub ? (
-                  <>
-                    <svg
-                      className="mr-2 -ml-1 h-4 w-4 animate-spin"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4Z"
-                      />
-                    </svg>
-                    Signing in with GitHub...
-                  </>
-                ) : (
-                  <>
-                    <GitHubIcon className="mr-2 h-4 w-4" />
-                    Sign in with GitHub
-                  </>
-                )}
-              </Button>
-            )}
+            <Button
+              onClick={handleGitHubSignIn}
+              disabled={loadingGitHub}
+              variant="outline"
+              size="lg"
+              className="w-full"
+            >
+              {loadingGitHub ? (
+                <>
+                  <svg
+                    className="mr-2 -ml-1 h-4 w-4 animate-spin"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4Z" />
+                  </svg>
+                  Signing in with GitHub...
+                </>
+              ) : (
+                <>
+                  <GitHubIcon className="mr-2 h-4 w-4" />
+                  Sign in with GitHub
+                </>
+              )}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

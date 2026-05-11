@@ -9,8 +9,8 @@ import { generateId } from '@/lib/utils/id'
  * Find or create a user in the database
  * Returns the internal user ID (our generated ID, not the external auth provider ID)
  *
- * IMPORTANT: This checks if the externalId is already connected to an existing user via accounts
- * to prevent duplicate accounts when someone connects GitHub then later signs in with GitHub
+ * IMPORTANT: This checks if a GitHub externalId is already connected to an existing legacy user via accounts
+ * to preserve their internal user ID when they later sign in directly with GitHub.
  */
 export async function upsertUser(
   userData: Omit<InsertUser, 'id' | 'createdAt' | 'updatedAt' | 'lastLoginAt'>,
@@ -44,29 +44,38 @@ export async function upsertUser(
     return existingUser[0].id
   }
 
-  // Second check: Is this a GitHub account already connected to an existing user via accounts table?
-  // This prevents duplicate accounts when someone:
-  // 1. Signs in with Vercel
-  // 2. Connects GitHub
-  // 3. Later signs in directly with GitHub
+  // This preserves legacy users who connected GitHub as a secondary account
+  // before GitHub became the only supported sign-in method.
   if (provider === 'github') {
     const existingAccount = await db
-      .select({ userId: accounts.userId })
+      .select({ id: accounts.id, userId: accounts.userId })
       .from(accounts)
       .where(and(eq(accounts.provider, 'github'), eq(accounts.externalUserId, externalId)))
       .limit(1)
 
     if (existingAccount.length > 0) {
       console.log('GitHub account is already connected to an existing user')
+      const now = new Date()
 
-      // Update the existing user's last login
-      await db
-        .update(users)
-        .set({
-          updatedAt: new Date(),
-          lastLoginAt: new Date(),
-        })
-        .where(eq(users.id, existingAccount[0].userId))
+      await db.transaction(async (tx) => {
+        await tx
+          .update(accounts)
+          .set({
+            accessToken,
+            scope,
+            username: userData.username,
+            updatedAt: now,
+          })
+          .where(eq(accounts.id, existingAccount[0].id))
+
+        await tx
+          .update(users)
+          .set({
+            updatedAt: now,
+            lastLoginAt: now,
+          })
+          .where(eq(users.id, existingAccount[0].userId))
+      })
 
       return existingAccount[0].userId
     }
@@ -98,7 +107,7 @@ export async function getUserById(userId: string) {
 /**
  * Get user by auth provider and external ID
  */
-export async function getUserByExternalId(provider: 'github' | 'vercel', externalId: string) {
+export async function getUserByExternalId(provider: 'github', externalId: string) {
   const result = await db
     .select()
     .from(users)

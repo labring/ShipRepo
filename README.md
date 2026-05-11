@@ -60,7 +60,6 @@ SEALOS_HOST=
 DEVBOX_TOKEN=
 JWE_SECRET=
 ENCRYPTION_KEY=
-NEXT_PUBLIC_AUTH_PROVIDERS=github
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
 AI_GATEWAY_API_KEY=
@@ -137,7 +136,7 @@ pnpm db:studio
 ## Configuration Notes
 
 - The current task execution path is intentionally pinned to `codex` + `gpt-5.4`.
-- `NEXT_PUBLIC_AUTH_PROVIDERS` is expected to include `github`.
+- Authentication is GitHub OAuth-only; configure `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
 - Users can provide their own API keys in the app, which can override global key configuration.
 - Connectors are managed from the application UI; if a connector stores OAuth credentials, `ENCRYPTION_KEY` must be set.
 
