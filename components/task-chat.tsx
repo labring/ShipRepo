@@ -392,7 +392,7 @@ export function TaskChat({ taskId, task, chatOnly = false }: TaskChatProps) {
             <path d="M37.5274 0L75.0548 65H0L37.5274 0Z" />
           </svg>
           <div className="min-w-0 flex-1">
-            <div className="truncate text-sm font-medium">Vercel Preview</div>
+            <div className="truncate text-sm font-medium">Sealos Preview</div>
             <div className="text-xs text-muted-foreground">
               {deployment.createdAt
                 ? `Deployed ${new Date(deployment.createdAt).toLocaleString()}`

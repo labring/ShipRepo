@@ -1,23 +1,46 @@
-# Analyze and Ship to Sealos
+# ShipRepo
 
-Analyze and Ship to Sealos is a Next.js app for running Sealos-focused coding and deployment tasks against GitHub repositories. A user selects a repo, submits a command, and the app runs a fixed `codex` + `gpt-5.4` execution path inside a Devbox runtime while surfacing logs, diffs, runtime state, and preview links in the UI.
+ShipRepo is a Next.js app for turning a GitHub repository into a runnable Sealos application. A user selects a repo, asks Sealos to prepare it, and the app runs a fixed `codex` + `gpt-5.4` execution path inside a Devbox runtime to analyze the project, fix deployment blockers, create a preview, and prepare the app to ship.
 
-![Analyze and Ship to Sealos Screenshot](screenshot.png)
+![ShipRepo Screenshot](screenshot.png)
 
 ## Why This Project Exists
 
-- Turn a GitHub repository and a deployment-oriented prompt into a tracked task.
-- Keep Sealos deployment work on a single, opinionated execution path instead of a generic agent router.
-- Combine runtime management, chat, file changes, preview controls, and repository context in one app.
-- Support per-user GitHub authentication, API keys, and connectors.
+- Turn an existing GitHub repository into a Sealos app lifecycle task.
+- Move users through one product path: analyze, fix, preview, ship, and operate.
+- Keep the agent focused on Sealos deployment engineering instead of a generic AI coding console.
+- Use Devbox as the cloud execution environment and Codex Gateway as the task orchestration layer.
+- Support per-user GitHub authentication, AIProxy keys, runtime state, and follow-up deployment work.
+
+## Product Scope
+
+ShipRepo starts from the repo the user already owns. It should help answer:
+
+- Can this project run on Sealos?
+- What deployment blockers exist?
+- Which Dockerfile, build command, start command, port, env vars, or Sealos template are missing?
+- Can Sealos create a cloud preview that the user can verify without running the project locally?
+- Can the verified preview be shipped and then operated from the same task workspace?
+
+The product is not intended to replace a local IDE or local `localhost:3000` development loop. Local preview proves that code can run on one developer machine. Sealos preview proves that the repository can run in a reproducible cloud deployment environment.
 
 ## What Developers Get
 
-- A home command surface for starting Sealos deployment tasks.
-- Task pages with logs, chat, file browsing, diff inspection, runtime controls, and preview actions.
-- Repository pages for commits, issues, and pull requests.
+- A GitHub repository entry point for Sealos deployment readiness checks.
+- Task pages with chat, logs, runtime state, file changes, preview actions, and follow-up turns.
+- Deployment-focused Codex execution inside a Devbox runtime.
 - Persistent task state in Postgres through Drizzle ORM.
-- Codex Gateway orchestration layered on top of Devbox runtime lifecycle management.
+- A foundation for Sealos lifecycle operations such as previews, env var fixes, redeploys, logs, domains, databases, object storage, and rollback workflows.
+
+## Core Workflow
+
+1. A user signs in and connects GitHub.
+2. The home page lets the user choose a repository and start a Sealos app lifecycle task.
+3. The app creates a task, stores it in Postgres, and starts the fixed `codex` + `gpt-5.4` flow.
+4. A Devbox runtime is provisioned or resumed for the task.
+5. Codex analyzes the repo for Sealos readiness and fixes deployment blockers when possible.
+6. The task produces a Sealos preview URL or a concrete blocker list.
+7. The user verifies the preview, ships the app, and continues operational follow-up in the task workspace.
 
 ## Tech Stack
 
@@ -40,7 +63,7 @@ Analyze and Ship to Sealos is a Next.js app for running Sealos-focused coding an
 - A PostgreSQL database
 - A GitHub OAuth app
 - Access to the Sealos and Devbox environment this app targets
-- An AI gateway key for Codex execution, unless you plan to provide user-scoped keys in the app
+- An AI gateway key for Codex execution, unless users provide scoped keys in the app
 
 ### 1. Install dependencies
 
@@ -86,16 +109,7 @@ pnpm db:migrate
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000), sign in with GitHub, choose a repository, and submit a Sealos-oriented task.
-
-## Core Workflow
-
-1. A user signs in with GitHub.
-2. The home page lets the user choose a repository and submit a deployment-oriented command.
-3. The app creates a task, stores it in Postgres, and starts the fixed `codex` + `gpt-5.4` flow.
-4. A Devbox runtime is provisioned or resumed for the task.
-5. The task is executed through the Codex Gateway.
-6. The task page shows logs, runtime state, file changes, preview actions, and follow-up chat.
+Open [http://localhost:3000](http://localhost:3000), sign in with GitHub, choose a repository, and start a Sealos lifecycle task.
 
 ## Project Structure
 
@@ -110,6 +124,7 @@ Open [http://localhost:3000](http://localhost:3000), sign in with GitHub, choose
 
 ## Further Reading
 
+- [reference/product-overview.zh.md](reference/product-overview.zh.md): product positioning and lifecycle path
 - [reference/architecture.md](reference/architecture.md): request flow, runtime lifecycle, and module boundaries
 - [reference/configuration.md](reference/configuration.md): environment variables, auth setup, migrations, and runtime behavior
 
@@ -139,14 +154,6 @@ pnpm db:studio
 - Authentication is GitHub OAuth-only; configure `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
 - Users can provide their own API keys in the app, which can override global key configuration.
 - Connectors are managed from the application UI; if a connector stores OAuth credentials, `ENCRYPTION_KEY` must be set.
-
-## Contributing
-
-1. Fork the repository.
-2. Create a branch for your change.
-3. Run `pnpm format`, `pnpm type-check`, and `pnpm lint`.
-4. Verify the change locally.
-5. Open a pull request.
 
 ## License
 

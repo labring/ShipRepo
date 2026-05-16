@@ -85,7 +85,7 @@ export function SealosTaskPageClient({ taskId, initialStars = 1200 }: SealosTask
       <div className="flex-1 min-h-0 px-4 py-4">
         <div className="mx-auto flex h-full max-w-5xl flex-col overflow-hidden rounded-3xl bg-background">
           <div className="px-5 py-4">
-            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Current Phase</p>
+            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">App Lifecycle Task</p>
             <h2 className="mt-2 text-xl font-semibold leading-tight">{task.title || task.prompt}</h2>
           </div>
 

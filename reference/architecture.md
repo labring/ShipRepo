@@ -1,22 +1,38 @@
 # Architecture
 
-This document explains how Analyze and Ship to Sealos is organized, how a task moves through the system, and where to look when changing core behavior.
+This document explains how ShipRepo is organized, how a repository moves through the app lifecycle, and where to look when changing core behavior.
 
 ## System Overview
 
 The app is a Next.js App Router application with three main responsibilities:
 
-1. Present a Sealos-oriented task UI for authenticated users.
-2. Persist task, auth, and connector state in Postgres through Drizzle ORM.
+1. Present a Sealos app lifecycle UI for authenticated users.
+2. Persist task, auth, runtime, preview, and connector state in Postgres through Drizzle ORM.
 3. Orchestrate a fixed `codex` + `gpt-5.4` execution path that runs inside a Devbox runtime and is driven through the Codex Gateway.
 
 At a high level:
 
-- The home page is the entry point for choosing a repository and starting a task.
+- The home page is the entry point for choosing a GitHub repository and starting a lifecycle task.
 - Task API routes create and manage task state.
-- Devbox code provisions or resumes the runtime that hosts the task workspace.
+- Devbox code provisions or resumes the cloud runtime that hosts the task workspace.
 - Codex Gateway code opens sessions, sends turns, proxies streams, and finalizes task completion.
-- Task pages surface the state of that work back to the user.
+- Task pages surface analysis, fixes, preview state, runtime state, and follow-up operations back to the user.
+
+## Product Lifecycle
+
+ShipRepo should keep the user on one path:
+
+```text
+GitHub repo -> Analyze -> Fix deploy blockers -> Preview -> Ship -> Operate
+```
+
+- `Analyze`: inspect framework, package manager, build command, start command, port, env vars, and resource needs.
+- `Fix`: generate or correct Dockerfile, Sealos template, runtime config, and deployment-specific code changes.
+- `Preview`: create a reproducible Sealos cloud preview that can be shared and verified.
+- `Ship`: turn a verified preview into a Sealos deployment.
+- `Operate`: continue with logs, env vars, redeploys, domains, database/object-storage binding, rollback, and follow-up changes.
+
+This boundary matters: the product is not a generic AI coding console. Codex is used as a Sealos deployment engineer.
 
 ## Main User Surfaces
 
@@ -26,11 +42,11 @@ At a high level:
 - Main UI: `components/sealos-home-page-content.tsx`
 - Input form: `components/task-form.tsx`
 
-This flow is optimized for a single deployment-oriented command surface:
+This flow is optimized for a single repo-to-Sealos path:
 
 - the user signs in
 - chooses a GitHub repository
-- submits a prompt
+- starts deployment analysis or describes the desired Sealos outcome
 - is redirected into the task workspace
 
 ### Task workspace
@@ -41,10 +57,11 @@ This flow is optimized for a single deployment-oriented command surface:
 
 The task workspace is the main operational screen. It shows:
 
-- current task title or prompt
+- current lifecycle task title or prompt
 - chat and follow-up turns
 - task actions
-- task status as it changes over time
+- runtime and task status
+- preview links and deployment-related outputs
 
 Other supporting task UI lives in components such as `components/task-details.tsx`, `components/file-browser.tsx`, and related dialogs.
 
@@ -58,6 +75,8 @@ These pages expose repository context outside the task flow:
 - commits
 - issues
 - pull requests
+
+Repository views are supporting surfaces. The main product path remains repo lifecycle execution.
 
 ## Execution Flow
 
@@ -128,7 +147,7 @@ This keeps the task workspace live while long-running runtime and gateway work i
 The most important persisted entities are:
 
 - `users`: signed-in users and their primary auth provider state
-- `tasks`: task prompt, runtime state, gateway state, PR metadata, logs, and timestamps
+- `tasks`: lifecycle prompt, runtime state, gateway state, preview/PR metadata, logs, and timestamps
 - `connectors`: user-level connector definitions
 
 The `tasks` table acts as the operational center of the app. It stores:

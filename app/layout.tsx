@@ -27,8 +27,8 @@ const commissioner = Commissioner({
 })
 
 export const metadata: Metadata = {
-  title: 'Analyze and Ship to Sealos',
-  description: 'Deploy repositories to Sealos with Codex, GPT-5.4, Devbox runtimes, and the Codex Gateway.',
+  title: 'ShipRepo',
+  description: 'Analyze, fix, preview, ship, and operate GitHub repositories on Sealos.',
 }
 
 export default function RootLayout({

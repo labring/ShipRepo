@@ -57,7 +57,7 @@ export async function generateMetadata({ params }: TaskPageProps): Promise<Metad
   }
 
   return {
-    title: `${pageTitle} - Sealos Deploy`,
+    title: `${pageTitle} - ShipRepo`,
     description: 'View the current task conversation and deployment workflow',
   }
 }

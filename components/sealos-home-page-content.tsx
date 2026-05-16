@@ -157,17 +157,17 @@ export function SealosHomePageContent({
 
   const commandDisabled = !isAuthenticated || !hasSelectedRepo
   const pageDescription = !isAuthenticated
-    ? 'Stay on the same deploy surface. Sign in, choose a repository, then run the command.'
-    : 'Choose a GitHub repository, then tell Sealos what to launch. The shell stays the same from setup to deploy.'
+    ? 'Sign in, choose a repository, then let Sealos inspect what it needs before anything ships.'
+    : 'Choose a GitHub repository. Sealos will analyze it, fix deploy blockers, create a preview, then ship it.'
 
   const commandPlaceholder = !isAuthenticated
-    ? 'Sign in to choose a repository and unlock deploy.'
+    ? 'Sign in to choose a repository and start deployment analysis.'
     : hasSelectedRepo
-      ? 'Prepare this repo for Sealos with /sealos-deploy.'
-      : 'Choose a repository above to unlock the deploy command.'
+      ? 'Analyze this repo, fix deploy blockers, and create a Sealos preview.'
+      : 'Choose a repository above to start deployment analysis.'
 
   const commandHelperText = !isAuthenticated
-    ? 'Sign in to choose a repository and unlock deploy.'
+    ? 'Sign in to choose a repository and start deployment analysis.'
     : hasSelectedRepo
       ? ''
       : canSelectRepository
@@ -210,6 +210,7 @@ export function SealosHomePageContent({
       ) : null}
     </div>
   )
+  const lifecycleSteps = ['Analyze', 'Fix', 'Preview', 'Ship', 'Operate']
 
   return (
     <div className="flex flex-1 flex-col bg-background">
@@ -220,8 +221,8 @@ export function SealosHomePageContent({
       <div className="flex flex-1 items-center justify-center px-4 pb-8">
         <div className="w-full max-w-3xl">
           <div className="mb-7 text-center">
-            <div className="sealos-eyebrow">Deploy to Sealos</div>
-            <h1 className="sealos-section-title mt-4 text-foreground sm:text-[2.5rem]">Deploy with one command</h1>
+            <div className="sealos-eyebrow">Repo to Sealos App</div>
+            <h1 className="sealos-section-title mt-4 text-foreground sm:text-[2.5rem]">Analyze, preview, ship</h1>
             <p className="sealos-body mx-auto mt-3">{pageDescription}</p>
           </div>
 
@@ -240,6 +241,14 @@ export function SealosHomePageContent({
             initialMaxDuration={initialMaxDuration}
             maxSandboxDuration={maxSandboxDuration}
           />
+
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            {lifecycleSteps.map((step, index) => (
+              <div key={step} className="sealos-helper rounded-full border border-border/70 bg-muted/20 px-3 py-1.5">
+                {index + 1}. {step}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -247,7 +256,9 @@ export function SealosHomePageContent({
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Sign in to continue</DialogTitle>
-            <DialogDescription>You need to sign in with GitHub to create tasks.</DialogDescription>
+            <DialogDescription>
+              You need to sign in with GitHub to prepare Sealos app lifecycle tasks.
+            </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-3 py-4">

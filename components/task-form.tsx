@@ -148,16 +148,16 @@ export function TaskForm({
   }
 
   const title = !isAuthenticated
-    ? 'Sign In to Deploy on Sealos'
+    ? 'Sign In to Prepare a Sealos App'
     : hasSelectedRepo
-      ? 'Deploy Your Project to Sealos'
-      : 'Choose a Repository to Deploy'
+      ? 'Prepare This Repository for Sealos'
+      : 'Choose a Repository to Analyze'
 
   const description = !isAuthenticated
-    ? 'Sign in first, then choose a GitHub repository and tell Sealos how it should be analyzed, built, and deployed.'
+    ? 'Sign in first, then choose a GitHub repository and let Sealos inspect what it needs to run.'
     : hasSelectedRepo
-      ? 'Tell Sealos what you want to do with this repository. A simple deployment request is enough.'
-      : 'Sign in with GitHub, choose a repository, then describe how Sealos should analyze, build, and deploy it.'
+      ? 'Tell Sealos what outcome you want. It will analyze the repo, fix deployment blockers, and create a preview.'
+      : 'Sign in with GitHub, choose a repository, then start a deployment readiness check.'
 
   const repoBannerText = hasSelectedRepo
     ? `${selectedOwner}/${selectedRepo}`
@@ -170,8 +170,8 @@ export function TaskForm({
     : !isAuthenticated
       ? 'Sign in first. After that, choose a repository and describe the deployment task here.'
       : hasSelectedRepo
-        ? 'For example: deploy this repository to Sealos.'
-        : 'Choose a repository first. Then describe how Sealos should build and deploy it.'
+        ? 'For example: analyze this repo and create a Sealos preview.'
+        : 'Choose a repository first. Then describe the Sealos preview or deployment goal.'
 
   const helperText = isCommandVariant
     ? (commandHelperText ?? 'Enter to deploy. Shift+Enter for a new line.')
@@ -179,7 +179,7 @@ export function TaskForm({
       ? 'Start by signing in. After you pick a repository, you can describe the deployment task here.'
       : hasSelectedRepo
         ? ''
-        : 'After you pick a repository, describe what Sealos should build and deploy.'
+        : 'After you pick a repository, describe what Sealos should analyze, preview, or ship.'
   const showCommandHelper =
     isCommandVariant && Boolean(helperText) && (alwaysShowCommandHelper || prompt.trim().length > 0 || isSubmitting)
 
@@ -221,7 +221,7 @@ export function TaskForm({
               ) : (
                 <>
                   <ArrowUp className="h-4 w-4" />
-                  Deploy
+                  Start
                 </>
               )}
             </Button>

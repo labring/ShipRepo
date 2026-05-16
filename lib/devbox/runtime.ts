@@ -611,7 +611,7 @@ export async function ensureTaskDevboxRuntime(
     archiveAfterPauseTime: getDevboxArchiveAfterPauseTime(),
     labels: [
       { key: 'app.kubernetes.io/component', value: 'runtime' },
-      { key: 'app.kubernetes.io/managed-by', value: 'coding-agent-template' },
+      { key: 'app.kubernetes.io/managed-by', value: 'shiprepo' },
     ],
   })
 
